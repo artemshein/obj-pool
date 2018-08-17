@@ -1,95 +1,98 @@
-extern crate vec_arena;
+extern crate obj_pool;
 
-use vec_arena::Arena;
-
-/// The null index, akin to null pointers.
-///
-/// Just like a null pointer indicates an address no object is ever stored at,
-/// the null index indicates an index no object is ever stored at.
-///
-/// Number `!0` is the largest possible value representable by `usize`.
-const NULL: usize = !0;
+use obj_pool::{ObjPool, ObjId};
 
 struct Node<T> {
     /// Parent node.
-    parent: usize,
+    parent: ObjId,
 
     /// Left and right child.
-    children: [usize; 2],
+    children: [ObjId; 2],
 
     /// Actual value stored in node.
     value: T,
 }
 
 impl<T> Node<T> {
-    fn new(value: T) -> Node<T> {
+    fn new(value: T, null: ObjId) -> Node<T> {
         Node {
-            parent: NULL,
-            children: [NULL, NULL],
-            value: value,
+            parent: null,
+            children: [null, null],
+            value,
         }
     }
 }
 
 struct Splay<T> {
     /// This is where nodes are stored.
-    arena: Arena<Node<T>>,
+    obj_pool: ObjPool<Node<T>>,
 
     /// The root node.
-    root: usize,
+    root: ObjId,
+
+    /// Non-existing/null `ObjId`.
+    ///
+    /// The null index, akin to null pointers.
+    ///
+    /// Just like a null pointer indicates an address no object is ever stored at,
+    /// the null index indicates an index no object is ever stored at.
+    null: ObjId,
 }
 
 impl<T> Splay<T> where T: Ord {
     /// Constructs a new, empty splay tree.
     fn new() -> Splay<T> {
+        let obj_pool = ObjPool::new();
+        let null = obj_pool.obj_id_from_index(u32::max_value());
         Splay {
-            arena: Arena::new(),
-            root: NULL,
+            obj_pool,
+            root: null,
+            null,
         }
     }
 
     /// Links nodes `p` and `c` as parent and child with the specified direction.
     #[inline(always)]
-    fn link(&mut self, p: usize, c: usize, dir: usize) {
-        self.arena[p].children[dir] = c;
-        if c != NULL {
-            self.arena[c].parent = p;
+    fn link(&mut self, p: ObjId, c: ObjId, dir: usize) {
+        self.obj_pool[p].children[dir] = c;
+        if c != self.null {
+            self.obj_pool[c].parent = p;
         }
     }
 
     /// Performs a rotation on node `c`, whose parent is node `p`.
     #[inline(always)]
-    fn rotate(&mut self, p: usize, c: usize) {
+    fn rotate(&mut self, p: ObjId, c: ObjId) {
         // Variables:
         // - `c` is the child node
         // - `p` is it's parent
         // - `g` is it's grandparent
 
         // Find the grandparent.
-        let g = self.arena[p].parent;
+        let g = self.obj_pool[p].parent;
 
         // The direction of p-c relationship.
-        let dir = if self.arena[p].children[0] == c { 0 } else { 1 };
+        let dir = if self.obj_pool[p].children[0] == c { 0 } else { 1 };
 
         // This is the child of `c` that needs to be reassigned to `p`.
-        let t = self.arena[c].children[dir ^ 1];
+        let t = self.obj_pool[c].children[dir ^ 1];
 
         self.link(p, t, dir);
         self.link(c, p, dir ^ 1);
 
-        if g == NULL {
+        if g == self.null {
             // There is no grandparent, so `c` becomes the root.
             self.root = c;
-            self.arena[c].parent = NULL;
+            self.obj_pool[c].parent = self.null;
         } else {
             // Link `g` and `c` together.
-            let dir = if self.arena[g].children[0] == p { 0 } else { 1 };
+            let dir = if self.obj_pool[g].children[0] == p { 0 } else { 1 };
             self.link(g, c, dir);
         }
     }
 
     /// Splays a node, rebalancing the tree in process.
-    fn splay(&mut self, c: usize) {
+    fn splay(&mut self, c: ObjId) {
         loop {
             // Variables:
             // - `c` is the current node
@@ -97,22 +100,22 @@ impl<T> Splay<T> where T: Ord {
             // - `g` is it's grandparent
 
             // Find the parent.
-            let p = self.arena[c].parent;
-            if p == NULL {
+            let p = self.obj_pool[c].parent;
+            if p == self.null {
                 // There is no parent. That means `c` is the root.
                 break;
             }
 
             // Find the grandparent.
-            let g = self.arena[p].parent;
-            if g == NULL {
+            let g = self.obj_pool[p].parent;
+            if g == self.null {
                 // There is no grandparent. Just one more rotation is left.
                 // Zig step.
                 self.rotate(p, c);
                 break;
             }
 
-            if (self.arena[g].children[0] == p) == (self.arena[p].children[0] == c) {
+            if (self.obj_pool[g].children[0] == p) == (self.obj_pool[p].children[0] == c) {
                 // Zig-zig step.
                 self.rotate(g, p);
                 self.rotate(p, c);
@@ -131,18 +134,18 @@ impl<T> Splay<T> where T: Ord {
         // - `p` will be it's parent
         // - `c` is the present child of `p`
 
-        let n = self.arena.insert(Node::new(value));
+        let n = self.obj_pool.insert(Node::new(value, self.null));
 
-        if self.root == NULL {
+        if self.root == self.null {
             self.root = n;
         } else {
             let mut p = self.root;
             loop {
                 // Decide whether to go left or right.
-                let dir = if self.arena[n].value < self.arena[p].value { 0 } else { 1 };
-                let c = self.arena[p].children[dir];
+                let dir = if self.obj_pool[n].value < self.obj_pool[p].value { 0 } else { 1 };
+                let c = self.obj_pool[p].children[dir];
 
-                if c == NULL {
+                if c == self.null {
                     self.link(p, n, dir);
                     self.splay(n);
                     break;
@@ -153,16 +156,16 @@ impl<T> Splay<T> where T: Ord {
     }
 
     /// Pretty-prints the subtree rooted at `node`, indented by `indent` spaces.
-    fn print(&self, node: usize, indent: usize) where T: std::fmt::Display {
-        if node != NULL {
+    fn print(&self, node: ObjId, indent: usize) where T: std::fmt::Display {
+        if node != self.null {
             // Print the left subtree.
-            self.print(self.arena[node].children[0], indent + 3);
+            self.print(self.obj_pool[node].children[0], indent + 3);
 
             // Print the current node.
-            println!("{:width$}{}", "", self.arena[node].value, width = indent);
+            println!("{:width$}{}", "", self.obj_pool[node].value, width = indent);
 
             // Print the right subtree.
-            self.print(self.arena[node].children[1], indent + 3);
+            self.print(self.obj_pool[node].children[1], indent + 3);
         }
     }
 }

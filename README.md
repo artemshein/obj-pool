@@ -1,11 +1,8 @@
-# vec-arena (deprecated)
+# obj-pool
 
-[![Build Status](https://travis-ci.org/stjepang/vec-arena.svg?branch=master)](https://travis-ci.org/stjepang/vec-arena)
-[![License](https://img.shields.io/badge/license-Apache--2.0%2FMIT-blue.svg)](https://github.com/stjepang/vec-arena)
-[![Cargo](https://img.shields.io/crates/v/vec-arena.svg)](https://crates.io/crates/vec-arena)
-[![Documentation](https://docs.rs/vec-arena/badge.svg)](https://docs.rs/vec-arena)
-
-**This crate is now deprecated in favor of [slab](https://github.com/carllerche/slab).**
+[![Build Status](https://travis-ci.org/stjepang/vec-arena.svg?branch=master)](https://travis-ci.org/artemshein/obj-pool)
+[![License](https://img.shields.io/badge/license-Apache--2.0%2FMIT-blue.svg)](https://github.com/artemshein/obj-pool)
+[![Documentation](https://docs.rs/obj-pool/badge.svg)](https://docs.rs/obj-pool)
 
 #### What is this?
 
@@ -20,12 +17,12 @@ Managing ownership and lifetimes might be tough then. Your options boil down to:
 2. Wrap every object in `Rc<RefCell<T>>`.
 3. Use `Vec<T>` to store objects, then access them using indices.
 
-If the last option seems most appealing to you, perhaps `Arena<T>` is for you.
+If the last option seems most appealing to you, perhaps `ObjPool<T>` is for you.
 It will provide a more convenient API than a plain `Vec<T>`.
 
 #### Examples
 
-Some data structures built using `Arena<T>`:
+Some data structures built using `ObjPool<T>`:
 
-* [Doubly linked list](https://github.com/stjepang/vec-arena/blob/master/examples/linked_list.rs)
-* [Splay tree](https://github.com/stjepang/vec-arena/blob/master/examples/splay_tree.rs)
+* [Doubly linked list](https://github.com/artemshein/obj-pool/blob/master/examples/linked_list.rs)
+* [Splay tree](https://github.com/artemshein/obj-pool/blob/master/examples/splay_tree.rs)

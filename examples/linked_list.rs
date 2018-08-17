@@ -1,21 +1,13 @@
-extern crate vec_arena;
+extern crate obj_pool;
 
-use vec_arena::Arena;
-
-/// The null index, akin to null pointers.
-///
-/// Just like a null pointer indicates an address no object is ever stored at,
-/// the null index indicates an index no object is ever stored at.
-///
-/// Number `!0` is the largest possible value representable by `usize`.
-const NULL: usize = !0;
+use obj_pool::{ObjPool, ObjId};
 
 struct Node<T> {
     /// Previous node in the list.
-    prev: usize,
+    prev: ObjId,
 
     /// Next node in the list.
-    next: usize,
+    next: ObjId,
 
     /// Actual value stored in node.
     value: T,
@@ -23,73 +15,84 @@ struct Node<T> {
 
 struct List<T> {
     /// This is where nodes are stored.
-    arena: Arena<Node<T>>,
+    obj_pool: ObjPool<Node<T>>,
 
     /// First node in the list.
-    head: usize,
+    head: ObjId,
 
     /// Last node in the list.
-    tail: usize,
+    tail: ObjId,
+
+    /// The null index, akin to null pointers.
+    ///
+    /// Just like a null pointer indicates an address no object is ever stored at,
+    /// the null index indicates an index no object is ever stored at.
+    null: ObjId,
 }
 
 impl<T> List<T> {
     /// Constructs a new, empty doubly linked list.
     fn new() -> Self {
+        let obj_pool = ObjPool::new();
+        let null = obj_pool.obj_id_from_index(u32::max_value());
         List {
-            arena: Arena::new(),
-            head: NULL,
-            tail: NULL,
+            obj_pool,
+            head: null,
+            tail: null,
+            null,
         }
     }
 
     /// Returns the number of elements in the list.
     fn len(&self) -> usize {
-        self.arena.len()
+        self.obj_pool.len() as usize
     }
 
     /// Links nodes `a` and `b` together, so that `a` comes before `b` in the list.
-    fn link(&mut self, a: usize, b: usize) {
-        if a != NULL { self.arena[a].next = b; }
-        if b != NULL { self.arena[b].prev = a; }
+    fn link(&mut self, a: ObjId, b: ObjId) {
+        if a != self.null { self.obj_pool[a].next = b; }
+        if b != self.null { self.obj_pool[b].prev = a; }
     }
 
     /// Appends `value` to the back of the list.
     fn push_back(&mut self, value: T) -> usize {
-        let node = self.arena.insert(Node {
-            prev: NULL,
-            next: NULL,
-            value: value,
+        let node = self.obj_pool.insert(Node {
+            prev: self.null,
+            next: self.null,
+            value,
         });
 
         let tail = self.tail;
         self.link(tail, node);
 
         self.tail = node;
-        if self.head == NULL {
+        if self.head == self.null {
             self.head = node;
         }
-        node
+        self.obj_pool.index_from_obj_id(node) as usize
     }
 
     /// Pops and returns the value at the front of the list.
     fn pop_front(&mut self) -> T {
-        let node = self.arena.remove(self.head).unwrap();
+        let node = self.obj_pool.remove(self.head).unwrap();
 
-        self.link(NULL, node.next);
+        let null = self.null;
+        self.link(null, node.next);
         self.head = node.next;
-        if node.next == NULL {
-            self.tail = NULL;
+        if node.next == self.null {
+            self.tail = self.null;
         }
         node.value
     }
 
     /// Removes the element specified by `index`.
     fn remove(&mut self, index: usize) -> T {
-        let node = self.arena.remove(index).unwrap();
+        let obj_id = self.obj_pool.obj_id_from_index(index as u32);
+        let node = self.obj_pool.remove(obj_id).unwrap();
 
         self.link(node.prev, node.next);
-        if self.head == index { self.head = node.next; }
-        if self.tail == index { self.tail = node.prev; }
+        if self.head == obj_id { self.head = node.next; }
+        if self.tail == obj_id { self.tail = node.prev; }
 
         node.value
     }
@@ -112,21 +115,21 @@ fn main() {
 
     // The list is now [1, 2, 3, 10, 20, 30].
 
-    assert!(list.len() == 6);
+    assert_eq!(list.len(), 6);
 
-    assert!(list.remove(one) == 1);
-    assert!(list.remove(twenty) == 20);
+    assert_eq!(list.remove(one), 1);
+    assert_eq!(list.remove(twenty), 20);
 
     // The list is now [2, 3, 10, 30].
 
-    assert!(list.len() == 4);
+    assert_eq!(list.len(), 4);
 
-    assert!(list.pop_front() == 2);
-    assert!(list.pop_front() == 3);
-    assert!(list.pop_front() == 10);
-    assert!(list.pop_front() == 30);
+    assert_eq!(list.pop_front(), 2);
+    assert_eq!(list.pop_front(), 3);
+    assert_eq!(list.pop_front(), 10);
+    assert_eq!(list.pop_front(), 30);
 
     // The list is now [].
 
-    assert!(list.len() == 0);
+    assert_eq!(list.len(), 0);
 }
