@@ -34,7 +34,7 @@ impl<T> List<T> {
     /// Constructs a new, empty doubly linked list.
     fn new() -> Self {
         let obj_pool = ObjPool::new();
-        let null = obj_pool.obj_id_from_index(u32::max_value());
+        let null = obj_pool.index_to_obj_id(u32::max_value());
         List {
             obj_pool,
             head: null,
@@ -69,7 +69,7 @@ impl<T> List<T> {
         if self.head == self.null {
             self.head = node;
         }
-        self.obj_pool.index_from_obj_id(node) as usize
+        self.obj_pool.obj_id_to_index(node) as usize
     }
 
     /// Pops and returns the value at the front of the list.
@@ -87,7 +87,7 @@ impl<T> List<T> {
 
     /// Removes the element specified by `index`.
     fn remove(&mut self, index: usize) -> T {
-        let obj_id = self.obj_pool.obj_id_from_index(index as u32);
+        let obj_id = self.obj_pool.index_to_obj_id(index as u32);
         let node = self.obj_pool.remove(obj_id).unwrap();
 
         self.link(node.prev, node.next);

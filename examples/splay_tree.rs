@@ -43,7 +43,7 @@ impl<T> Splay<T> where T: Ord {
     /// Constructs a new, empty splay tree.
     fn new() -> Splay<T> {
         let obj_pool = ObjPool::new();
-        let null = obj_pool.obj_id_from_index(u32::max_value());
+        let null = obj_pool.index_to_obj_id(u32::max_value());
         Splay {
             obj_pool,
             root: null,
