@@ -6,6 +6,25 @@
 //!   in return.
 //! * Remove object with a specified `ObjId`.
 //! * Access object with a specified `ObjId`.
+//! * Convert `ObjId` to index and back for specified `ObjPool`.
+//!
+//! # Features
+//!
+//! * Implements debug-only checks for `ObjId` and `ObjPool` correspondence. It will panic in debug
+//! with some pretty high probability (depending on the actual size of the `ObjPool`) in case of
+//! using an `ObjId` from the one `ObjPool` with another `ObjPool`. It helps a lot to find bugs in
+//! case of using many `ObjPool`s in the same application with no overhead in release.
+//!
+//! * Provides 32-bit long `OptionObjId` type as a memory-footprint optimization replacement for
+//! `Option<ObjId>` in case you don't need to store more than `u32::max_value() / 2` objects in
+//! your `ObjPool`.
+//!
+//! # Limitations:
+//!
+//! * `ObjPool` can only store up to `u32::max_value() / 2` objects in it in case you are using
+//! `OptionObjId` as long as `OptionObjId` treats `u32::max_value()` as an universal `None`.
+//!
+//! * `ObjId` is always 32-bit long.
 //!
 //! # Examples
 //!
@@ -26,6 +45,8 @@ use rand::prelude::random;
 use std::ops::Deref;
 use std::slice;
 
+pub mod invalid_value;
+
 /// A slot, which is either vacant or occupied.
 ///
 /// Vacant slots in object pool are linked together into a singly linked list. This allows the object pool to
@@ -42,7 +63,9 @@ enum Slot<T> {
 
 /// An id of the object in an `ObjPool`.
 ///
-/// It is basically just an index in the underlying vector.
+/// In release it is basically just an index in the underlying vector, but in debug it's an `index` +
+/// `ObjPool`-specific `offset`. This is made to be able to check `ObjId` if it's from the same
+/// `ObjPool` we are trying to get an object from.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct ObjId(u32);
 
@@ -95,6 +118,32 @@ impl From<u32> for ObjId {
         ObjId(v)
     }
 }
+
+impl invalid_value::InvalidValue<ObjId> for ObjId {
+    fn invalid_value() -> ObjId {
+        u32::max_value().into()
+    }
+}
+
+/// Optimization for `Option<ObjId>` which treats `ObjId` of `u32::max_value()` as `None`.
+/// It's safe to store any `ObjPool` `ObjId` in this wrapper as long as the size of the `ObjPool` is
+/// less than `u32::max_value() / 2`.
+///
+/// ```
+/// use obj_pool::{ObjPool, ObjId, OptionObjId};
+///
+/// let mut obj_pool = ObjPool::default();
+///
+/// let mut n: OptionObjId = obj_pool.insert(10).into();
+///
+/// assert!(n.is_some());
+/// assert_eq!(10, obj_pool[n.unwrap()]);
+///
+/// n = OptionObjId::none();
+/// assert!(n.is_none());
+/// assert_eq!(None, n.option());
+/// ```
+pub type OptionObjId = invalid_value::OptionInvalidValue<ObjId>;
 
 /// An object pool.
 ///
@@ -206,11 +255,14 @@ impl<T> ObjPool<T> {
         Self::null_index_with_offset(self.offset)
     }
 
+    /// Returns an offset for this `ObjPool`, in release mode it's `0`, in debug mode it's
+    /// between `0` and `u32::max_value() / 2`.
     #[inline]
     pub fn offset(&self) -> u32 {
         self.offset
     }
 
+    /// For debug purposes only.
     #[cfg(debug_assertions)]
     pub fn with_offset(offset: u32) -> Self {
         ObjPool {
@@ -230,11 +282,13 @@ impl<T> ObjPool<T> {
         }
     }
 
+    /// Get an index in the `ObjPool` for the given `ObjId`.
     #[inline]
     pub fn obj_id_to_index(&self, obj_id: ObjId) -> u32 {
         obj_id.into_index(self.offset)
     }
 
+    /// Make an `ObjId` from an index in this `ObjPool`.
     #[inline]
     pub fn index_to_obj_id(&self, index: u32) -> ObjId {
         ObjId::from_index(index, self.offset)
