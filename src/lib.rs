@@ -33,9 +33,10 @@
 //! * [Doubly linked list](https://github.com/artemshein/obj-pool/blob/master/examples/linked_list.rs)
 //! * [Splay tree](https://github.com/artemshein/obj-pool/blob/master/examples/splay_tree.rs)
 
-extern crate unreachable;
+pub extern crate unreachable;
 #[cfg(debug_assertions)]
-extern crate rand;
+pub extern crate rand;
+pub extern crate optional;
 
 use std::{ops::{Index, IndexMut}, str::FromStr, num::ParseIntError, ptr, mem, iter, fmt, vec};
 
@@ -44,8 +45,6 @@ use unreachable::unreachable;
 use rand::prelude::random;
 use std::ops::Deref;
 use std::slice;
-
-pub mod invalid_value;
 
 /// A slot, which is either vacant or occupied.
 ///
@@ -119,9 +118,18 @@ impl From<u32> for ObjId {
     }
 }
 
-impl invalid_value::InvalidValue<ObjId> for ObjId {
-    fn invalid_value() -> ObjId {
+impl optional::Noned for ObjId {
+
+    fn is_none(&self) -> bool { self.0 == u32::max_value() }
+
+    fn get_none() -> ObjId {
         u32::max_value().into()
+    }
+}
+
+impl optional::OptEq for ObjId {
+    fn opt_eq(&self, other: &Self) -> bool {
+        self.0 == other.0
     }
 }
 
@@ -141,9 +149,9 @@ impl invalid_value::InvalidValue<ObjId> for ObjId {
 ///
 /// n = OptionObjId::none();
 /// assert!(n.is_none());
-/// assert_eq!(None, n.option());
+/// assert_eq!(None, n.into_option());
 /// ```
-pub type OptionObjId = invalid_value::OptionInvalidValue<ObjId>;
+pub type OptionObjId = optional::Optioned<ObjId>;
 
 /// An object pool.
 ///

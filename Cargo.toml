@@ -1,6 +1,6 @@
 [package]
 name = "obj-pool"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Artem Shein <sc-github@aisys.ru>", "Stjepan Glavina <stjepang@gmail.com>"]
 description = "A simple object arena"
 repository = "https://github.com/artemshein/obj-pool"
@@ -15,3 +15,4 @@ travis-ci = { repository = "artemshein/obj-pool" }
 [dependencies]
 unreachable = "0.1"
 rand = "0.5"
+optional = "0.4"
