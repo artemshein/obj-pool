@@ -1,3 +1,8 @@
+0.3.1
+=====
+
+* Fixed release build issue.
+
 0.3.0
 =====
 

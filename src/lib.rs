@@ -282,12 +282,15 @@ impl<T> ObjPool<T> {
     }
 
     #[inline]
+    #[cfg(debug_assertions)]
     fn new_offset() -> u32 {
-        if cfg!(debug_assertions) {
-            random::<u32>() / 2 // We want to keep u32::max_value() as an ultimate invalid value
-        } else {
-            0
-        }
+        random::<u32>() / 2 // We want to keep u32::max_value() as an ultimate invalid value
+    }
+
+    #[inline]
+    #[cfg(not(debug_assertions))]
+    fn new_offset() -> u32 {
+        0
     }
 
     /// Get an index in the `ObjPool` for the given `ObjId`.
