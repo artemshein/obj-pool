@@ -66,7 +66,7 @@ enum Slot<T> {
 /// `ObjPool`-specific `offset`. This is made to be able to check `ObjId` if it's from the same
 /// `ObjPool` we are trying to get an object from.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub struct ObjId(u32);
+pub struct ObjId(pub u32);
 
 impl ObjId {
 

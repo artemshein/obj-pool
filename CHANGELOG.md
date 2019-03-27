@@ -1,3 +1,9 @@
+0.4.0
+=====
+
+* Make ObjId field public for static usage
+* Update dependencies
+
 0.3.1
 =====
 
