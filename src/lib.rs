@@ -32,12 +32,6 @@
 //!
 //! * [Doubly linked list](https://github.com/artemshein/obj-pool/blob/master/examples/linked_list.rs)
 //! * [Splay tree](https://github.com/artemshein/obj-pool/blob/master/examples/splay_tree.rs)
-
-pub extern crate unreachable;
-#[cfg(debug_assertions)]
-pub extern crate rand;
-pub extern crate optional;
-
 use std::{ops::{Index, IndexMut}, str::FromStr, num::ParseIntError, ptr, mem, iter, fmt, vec};
 
 use unreachable::unreachable;
@@ -45,6 +39,9 @@ use unreachable::unreachable;
 use rand::prelude::random;
 use std::ops::Deref;
 use std::slice;
+
+#[cfg(feature = "serde_support")]
+use serde::{Serialize, Deserialize};
 
 /// A slot, which is either vacant or occupied.
 ///
@@ -66,6 +63,7 @@ enum Slot<T> {
 /// `ObjPool`-specific `offset`. This is made to be able to check `ObjId` if it's from the same
 /// `ObjPool` we are trying to get an object from.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "serde_support", derive(Serialize, Deserialize))]
 pub struct ObjId(pub u32);
 
 impl ObjId {

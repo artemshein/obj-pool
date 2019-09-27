@@ -1,3 +1,8 @@
+0.4.1
+=====
+
+* Add serde_support feature
+
 0.4.0
 =====
 
