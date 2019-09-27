@@ -40,6 +40,8 @@ use rand::prelude::random;
 use std::ops::Deref;
 use std::slice;
 
+pub use optional;
+
 #[cfg(feature = "serde_support")]
 use serde::{Serialize, Deserialize};
 
