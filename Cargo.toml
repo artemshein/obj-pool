@@ -1,6 +1,6 @@
 [package]
 name = "obj-pool"
-version = "0.4.2"
+version = "0.4.3"
 authors = ["Artem Shein <sc-github@aisys.ru>", "Stjepan Glavina <stjepang@gmail.com>"]
 description = "A simple object arena"
 repository = "https://github.com/artemshein/obj-pool"
@@ -21,4 +21,4 @@ serde = { version = "1.0", features = ["derive"], optional = true }
 
 [features]
 default = []
-serde_support = ["serde"]
+serde_support = ["serde", "optional/serde"]

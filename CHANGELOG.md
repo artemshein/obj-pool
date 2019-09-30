@@ -1,3 +1,8 @@
+0.4.2
+=====
+
+* Enable serde support for optional
+
 0.4.1
 =====
 
