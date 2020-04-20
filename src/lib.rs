@@ -253,8 +253,30 @@ impl<T> ObjPool<T> {
         }
     }
 
+    /// Constructs a new, empty object pool at compile time.
+    ///
+    /// The object pool will not allocate until objects are inserted into it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use obj_pool::ObjPool;
+    ///
+    /// let mut obj_pool: ObjPool<i32> = ObjPool::new();
+    /// ```
     #[inline]
-    fn null_index_with_offset(offset: u32) -> u32 {
+    pub const fn new_const() -> Self {
+        let offset = Self::new_const_offset();
+        ObjPool {
+            slots: Vec::new(),
+            len: 0,
+            head: Self::null_index_with_offset(offset),
+            offset,
+        }
+    }
+
+    #[inline]
+    const fn null_index_with_offset(offset: u32) -> u32 {
         offset.wrapping_add(u32::max_value())
     }
 
@@ -288,8 +310,20 @@ impl<T> ObjPool<T> {
     }
 
     #[inline]
+    #[cfg(debug_assertions)]
+    const fn new_const_offset() -> u32 {
+        const_random::const_random!(u32) / 2 // We want to keep u32::max_value() as an ultimate invalid value
+    }
+
+    #[inline]
     #[cfg(not(debug_assertions))]
     fn new_offset() -> u32 {
+        0
+    }
+
+    #[inline]
+    #[cfg(not(debug_assertions))]
+    const fn new_const_offset() -> u32 {
         0
     }
 
