@@ -1,6 +1,6 @@
 [package]
 name = "obj-pool"
-version = "0.4.3"
+version = "0.4.4"
 authors = ["Artem Shein <sc-github@aisys.ru>", "Stjepan Glavina <stjepang@gmail.com>"]
 description = "A simple object arena"
 repository = "https://github.com/artemshein/obj-pool"

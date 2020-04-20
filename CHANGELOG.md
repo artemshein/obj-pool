@@ -1,4 +1,4 @@
-0.4.3
+0.4.4
 =====
 
 * Add ObjPool::new_const 
