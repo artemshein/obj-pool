@@ -3,7 +3,6 @@ use parking_lot::{
     MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
 };
 use std::convert::TryInto;
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::cell::Cell;
 
 thread_local! {
@@ -55,14 +54,14 @@ impl<T, const S: usize> ParObjPool<T, S> {
     }
 
     fn obj_id_to_external(&self, obj_id: ObjId, shard_index: usize) -> ObjId {
-        ObjId(NonZeroU32::new((shard_index << 24) as u32 | obj_id.get()).expect("invalid value"))
+        ObjId(NonZeroU32::new((shard_index << 26) as u32 | obj_id.get()).expect("invalid value"))
     }
 
     fn obj_id_from_external(&self, obj_id: ObjId) -> (usize, ObjId) {
         let v = obj_id.get();
         (
-            (v >> 24) as usize,
-            ObjId(NonZeroU32::new(v & 0x00FFFFFF).expect("invalid value")),
+            (v >> 26) as usize,
+            ObjId(NonZeroU32::new(v & 0x03FFFFFF).expect("invalid value")),
         )
     }
 }
