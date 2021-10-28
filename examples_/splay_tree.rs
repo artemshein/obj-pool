@@ -4,20 +4,20 @@ use obj_pool::{ObjPool, ObjId};
 
 struct Node<T> {
     /// Parent node.
-    parent: ObjId,
+    parent: Option<ObjId>,
 
     /// Left and right child.
-    children: [ObjId; 2],
+    children: [Option<ObjId>; 2],
 
     /// Actual value stored in node.
     value: T,
 }
 
 impl<T> Node<T> {
-    fn new(value: T, null: ObjId) -> Node<T> {
+    fn new(value: T) -> Node<T> {
         Node {
-            parent: null,
-            children: [null, null],
+            parent: None,
+            children: [None, None],
             value,
         }
     }
@@ -28,34 +28,24 @@ struct Splay<T> {
     obj_pool: ObjPool<Node<T>>,
 
     /// The root node.
-    root: ObjId,
-
-    /// Non-existing/null `ObjId`.
-    ///
-    /// The null index, akin to null pointers.
-    ///
-    /// Just like a null pointer indicates an address no object is ever stored at,
-    /// the null index indicates an index no object is ever stored at.
-    null: ObjId,
+    root: Option<ObjId>,
 }
 
 impl<T> Splay<T> where T: Ord {
     /// Constructs a new, empty splay tree.
     fn new() -> Splay<T> {
         let obj_pool = ObjPool::new();
-        let null = obj_pool.index_to_obj_id(u32::max_value());
         Splay {
             obj_pool,
-            root: null,
-            null,
+            root: None,
         }
     }
 
     /// Links nodes `p` and `c` as parent and child with the specified direction.
     #[inline(always)]
-    fn link(&mut self, p: ObjId, c: ObjId, dir: usize) {
+    fn link(&mut self, p: ObjId, c: Option<ObjId>, dir: usize) {
         self.obj_pool[p].children[dir] = c;
-        if c != self.null {
+        if let Some(c) = c {
             self.obj_pool[c].parent = p;
         }
     }
@@ -80,14 +70,14 @@ impl<T> Splay<T> where T: Ord {
         self.link(p, t, dir);
         self.link(c, p, dir ^ 1);
 
-        if g == self.null {
-            // There is no grandparent, so `c` becomes the root.
-            self.root = c;
-            self.obj_pool[c].parent = self.null;
-        } else {
+        if let Some(g) = g {
             // Link `g` and `c` together.
             let dir = if self.obj_pool[g].children[0] == p { 0 } else { 1 };
             self.link(g, c, dir);
+        } else {
+            // There is no grandparent, so `c` becomes the root.
+            self.root = c;
+            self.obj_pool[c].parent = None;
         }
     }
 
@@ -101,14 +91,14 @@ impl<T> Splay<T> where T: Ord {
 
             // Find the parent.
             let p = self.obj_pool[c].parent;
-            if p == self.null {
+            if p.is_none() {
                 // There is no parent. That means `c` is the root.
                 break;
             }
 
             // Find the grandparent.
             let g = self.obj_pool[p].parent;
-            if g == self.null {
+            if g.is_none() {
                 // There is no grandparent. Just one more rotation is left.
                 // Zig step.
                 self.rotate(p, c);
@@ -134,24 +124,24 @@ impl<T> Splay<T> where T: Ord {
         // - `p` will be it's parent
         // - `c` is the present child of `p`
 
-        let n = self.obj_pool.insert(Node::new(value, self.null));
+        let n = self.obj_pool.insert(Node::new(value));
 
-        if self.root == self.null {
-            self.root = n;
-        } else {
-            let mut p = self.root;
+        if let Some(root) = self.root {
+            let mut p = root;
             loop {
                 // Decide whether to go left or right.
                 let dir = if self.obj_pool[n].value < self.obj_pool[p].value { 0 } else { 1 };
                 let c = self.obj_pool[p].children[dir];
 
-                if c == self.null {
+                if c.is_none() {
                     self.link(p, n, dir);
                     self.splay(n);
                     break;
                 }
                 p = c;
             }
+        } else {
+            self.root = n;
         }
     }
 

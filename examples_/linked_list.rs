@@ -4,10 +4,10 @@ use obj_pool::{ObjPool, ObjId};
 
 struct Node<T> {
     /// Previous node in the list.
-    prev: ObjId,
+    prev: Option<ObjId>,
 
     /// Next node in the list.
-    next: ObjId,
+    next: Option<ObjId>,
 
     /// Actual value stored in node.
     value: T,
@@ -18,28 +18,20 @@ struct List<T> {
     obj_pool: ObjPool<Node<T>>,
 
     /// First node in the list.
-    head: ObjId,
+    head: Option<ObjId>,
 
     /// Last node in the list.
-    tail: ObjId,
-
-    /// The null index, akin to null pointers.
-    ///
-    /// Just like a null pointer indicates an address no object is ever stored at,
-    /// the null index indicates an index no object is ever stored at.
-    null: ObjId,
+    tail: Option<ObjId>,
 }
 
 impl<T> List<T> {
     /// Constructs a new, empty doubly linked list.
     fn new() -> Self {
         let obj_pool = ObjPool::new();
-        let null = obj_pool.index_to_obj_id(u32::max_value());
         List {
             obj_pool,
-            head: null,
-            tail: null,
-            null,
+            head: None,
+            tail: None,
         }
     }
 
@@ -49,16 +41,16 @@ impl<T> List<T> {
     }
 
     /// Links nodes `a` and `b` together, so that `a` comes before `b` in the list.
-    fn link(&mut self, a: ObjId, b: ObjId) {
-        if a != self.null { self.obj_pool[a].next = b; }
-        if b != self.null { self.obj_pool[b].prev = a; }
+    fn link(&mut self, a: Option<ObjId>, b: Option<ObjId>) {
+        if a.is_some() { self.obj_pool[a].next = b; }
+        if b.is_some() { self.obj_pool[b].prev = a; }
     }
 
     /// Appends `value` to the back of the list.
     fn push_back(&mut self, value: T) -> usize {
         let node = self.obj_pool.insert(Node {
-            prev: self.null,
-            next: self.null,
+            prev: None,
+            next: None,
             value,
         });
 
@@ -66,7 +58,7 @@ impl<T> List<T> {
         self.link(tail, node);
 
         self.tail = node;
-        if self.head == self.null {
+        if self.head.is_none() {
             self.head = node;
         }
         self.obj_pool.obj_id_to_index(node) as usize
@@ -76,11 +68,10 @@ impl<T> List<T> {
     fn pop_front(&mut self) -> T {
         let node = self.obj_pool.remove(self.head).unwrap();
 
-        let null = self.null;
-        self.link(null, node.next);
+        self.link(None, node.next);
         self.head = node.next;
-        if node.next == self.null {
-            self.tail = self.null;
+        if node.next.is_none() {
+            self.tail = None;
         }
         node.value
     }

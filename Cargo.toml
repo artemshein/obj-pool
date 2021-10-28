@@ -1,6 +1,6 @@
 [package]
 name = "obj-pool"
-version = "0.4.4"
+version = "0.5.0-alpha1"
 authors = ["Artem Shein <sc-github@aisys.ru>", "Stjepan Glavina <stjepang@gmail.com>"]
 description = "A simple object arena"
 repository = "https://github.com/artemshein/obj-pool"
@@ -15,11 +15,9 @@ travis-ci = { repository = "artemshein/obj-pool" }
 
 [dependencies]
 unreachable = "1.0"
-rand = "0.7.3"
-optional = "0.5"
-const-random = "0.1.8"
+parking_lot = "0.11.2"
 serde = { version = "1.0", features = ["derive"], optional = true }
 
 [features]
 default = []
-serde_support = ["serde", "optional/serde"]
+serde_support = ["serde"]
