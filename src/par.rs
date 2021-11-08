@@ -53,7 +53,7 @@ impl<T, const S: usize> ParObjPool<T, S> {
         .ok()
     }
 
-    pub fn clear(&mut self) {
+    pub fn clear(&self) {
         for shard in self.shards {
             shard.write().clear();
         }
