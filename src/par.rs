@@ -54,7 +54,7 @@ impl<T, const S: usize> ParObjPool<T, S> {
     }
 
     pub fn clear(&self) {
-        for shard in self.shards {
+        for shard in &self.shards {
             shard.write().clear();
         }
     }
