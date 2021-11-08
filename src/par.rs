@@ -53,6 +53,12 @@ impl<T, const S: usize> ParObjPool<T, S> {
         .ok()
     }
 
+    pub fn clear(&mut self) {
+        for shard in self.shards {
+            shard.write().clear();
+        }
+    }
+
     fn obj_id_to_external(&self, obj_id: ObjId, shard_index: usize) -> ObjId {
         ObjId(NonZeroU32::new((shard_index << 26) as u32 | obj_id.get()).expect("invalid value"))
     }
