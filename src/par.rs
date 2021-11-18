@@ -2,8 +2,8 @@ use crate::*;
 use parking_lot::{
     MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
 };
-use std::convert::TryInto;
 use std::cell::Cell;
+use std::convert::TryInto;
 
 thread_local! {
   static COUNTER: Cell<usize> = Cell::new(0);
@@ -55,8 +55,21 @@ impl<T, const S: usize> ParObjPool<T, S> {
 
     pub fn clear(&self) {
         for shard in &self.shards {
-            shard.write().clear();
+            let mut shard = shard.write();
+            shard.clear();
+            shard.shrink_to_fit();
         }
+    }
+
+    pub fn shrink_to_fit(&self) {
+        for shard in &self.shards {
+            let mut shard = shard.write();
+            shard.shrink_to_fit();
+        }
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.shards.iter().map(|s| s.read().capacity()).sum()
     }
 
     fn obj_id_to_external(&self, obj_id: ObjId, shard_index: usize) -> ObjId {
