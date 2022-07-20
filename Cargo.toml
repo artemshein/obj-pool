@@ -1,6 +1,6 @@
 [package]
 name = "obj-pool"
-version = "0.5.0-alpha2"
+version = "0.5.0"
 authors = ["Artem Shein <sc-github@aisys.ru>", "Stjepan Glavina <stjepang@gmail.com>"]
 description = "A simple object arena"
 repository = "https://github.com/artemshein/obj-pool"
@@ -8,14 +8,14 @@ documentation = "https://docs.rs/obj-pool"
 readme = "README.md"
 license = "Apache-2.0/MIT"
 categories = ["memory-management"]
-edition = "2018"
+edition = "2021"
 
 [badges]
 travis-ci = { repository = "artemshein/obj-pool" }
 
 [dependencies]
-unreachable = "1.0"
-parking_lot = "0.11.2"
+unreachable = "1.0.0"
+parking_lot = "0.12.1"
 serde = { version = "1.0", features = ["derive"], optional = true }
 
 [features]
