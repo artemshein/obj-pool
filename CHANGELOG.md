@@ -1,3 +1,13 @@
+0.5.1
+=====
+
+* Added try_get and try_get_mut for ParObjPool
+
+0.5.0
+=====
+
+* Shared implementation ParObjPool
+
 0.4.4
 =====
 

@@ -45,12 +45,28 @@ impl<T, const S: usize> ParObjPool<T, S> {
         .ok()
     }
 
+    pub fn try_get(&self, obj_id: ObjId) -> Option<MappedRwLockReadGuard<T>> {
+        let (shard_index, obj_id) = self.obj_id_from_external(obj_id);
+        RwLockReadGuard::try_map(if let Some(r) = self.shards[shard_index].try_read() { r } else { return None }, |obj_pool| {
+            obj_pool.get(obj_id)
+        })
+            .ok()
+    }
+
     pub fn get_mut(&self, obj_id: ObjId) -> Option<MappedRwLockWriteGuard<T>> {
         let (shard_index, obj_id) = self.obj_id_from_external(obj_id);
         RwLockWriteGuard::try_map(self.shards[shard_index].write(), |obj_pool| {
             obj_pool.get_mut(obj_id)
         })
         .ok()
+    }
+
+    pub fn try_get_mut(&self, obj_id: ObjId) -> Option<MappedRwLockWriteGuard<T>> {
+        let (shard_index, obj_id) = self.obj_id_from_external(obj_id);
+        RwLockWriteGuard::try_map(if let Some(w) = self.shards[shard_index].try_write() { w } else { return None }, |obj_pool| {
+            obj_pool.get_mut(obj_id)
+        })
+            .ok()
     }
 
     pub fn clear(&self) {
@@ -98,5 +114,7 @@ mod tests {
         assert_eq!(o.get(k).map(|v| *v), Some(20));
         let k = o.insert(30);
         assert_eq!(o.get(k).map(|v| *v), Some(30));
+        assert_eq!(o.try_get(k).map(|v| *v), Some(30));
+        assert_eq!(o.try_get_mut(k).map(|v| *v), Some(30));
     }
 }
