@@ -481,8 +481,8 @@ impl<T> ObjPool<T> {
     /// ```
     pub unsafe fn get_unchecked(&self, obj_id: ObjId) -> &T {
         match self.slots.get(Self::obj_id_to_index(obj_id) as usize) {
-            None => unreachable(),
-            Some(Slot::Vacant(_)) => unreachable(),
+            None => unsafe { unreachable() },
+            Some(Slot::Vacant(_)) => unsafe { unreachable() },
             Some(Slot::Occupied(object)) => object,
         }
     }
@@ -506,9 +506,9 @@ impl<T> ObjPool<T> {
     pub unsafe fn get_unchecked_mut(&mut self, obj_id: ObjId) -> &mut T {
         let index = Self::obj_id_to_index(obj_id) as usize;
         match self.slots.get_mut(index) {
-            Some(&mut Slot::Vacant(_)) => unreachable(),
+            Some(&mut Slot::Vacant(_)) => unsafe { unreachable() },
             Some(&mut Slot::Occupied(ref mut object)) => object,
-            _ => unreachable(),
+            _ => unsafe { unreachable() },
         }
     }
 

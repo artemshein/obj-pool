@@ -8,7 +8,7 @@ documentation = "https://docs.rs/obj-pool"
 readme = "README.md"
 license = "Apache-2.0/MIT"
 categories = ["memory-management"]
-edition = "2021"
+edition = "2024"
 
 [badges]
 travis-ci = { repository = "artemshein/obj-pool" }
