@@ -28,10 +28,10 @@ When building self-referential data structures (graphs, trees, linked lists) in 
 
 ```toml
 [dependencies]
-obj-pool = "0.5"
+obj-pool = "0.6"
 
 # with serde:
-obj-pool = { version = "0.5", features = ["serde_support"] }
+obj-pool = { version = "0.6", features = ["serde_support"] }
 ```
 
 ### Single-threaded pool

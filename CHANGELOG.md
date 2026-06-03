@@ -1,3 +1,13 @@
+0.6.0
+=====
+
+* Upgrade to Rust edition 2024.
+* Add `size_hint`, `ExactSizeIterator`, and `FusedIterator` to `Iter`, `IterMut`, and `IntoIter`.
+* Fix 2× iteration slowdown vs `slab`: `ObjId::from_index` now uses `new_unchecked` in release builds, allowing the compiler to eliminate key construction when the result is discarded.
+* Add GitHub Actions CI (test on stable/beta/nightly, clippy, rustfmt).
+* Add criterion benchmarks comparing `obj-pool` vs `slab`.
+* Rewrite README with usage examples and benchmark data.
+
 0.5.1
 =====
 
