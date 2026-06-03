@@ -56,7 +56,7 @@ impl<T, const S: usize> ParObjPool<T, S> {
         RwLockReadGuard::try_map(self.shards[shard_index].try_read()?, |obj_pool| {
             obj_pool.get(obj_id)
         })
-            .ok()
+        .ok()
     }
 
     pub fn get_mut(&self, obj_id: ObjId) -> Option<MappedRwLockWriteGuard<'_, T>> {
@@ -72,7 +72,7 @@ impl<T, const S: usize> ParObjPool<T, S> {
         RwLockWriteGuard::try_map(self.shards[shard_index].try_write()?, |obj_pool| {
             obj_pool.get_mut(obj_id)
         })
-            .ok()
+        .ok()
     }
 
     pub fn clear(&self) {
