@@ -62,7 +62,13 @@ pub struct ObjId(pub NonZeroU32);
 
 impl ObjId {
     pub fn from_index(index: u32) -> Self {
-        Self(NonZeroU32::new(index + 1).expect("invalid index"))
+        debug_assert!(index < u32::MAX, "index out of range");
+        // SAFETY: index + 1 is non-zero for any index < u32::MAX, which the
+        // debug assertion above guarantees. Using unchecked here makes the
+        // function side-effect-free in release builds so the compiler can
+        // eliminate ObjId construction when the result is unused (e.g. in
+        // iterator benchmarks that discard the key with `_`).
+        Self(unsafe { NonZeroU32::new_unchecked(index + 1) })
     }
 
     pub const fn into_index(self) -> u32 {
@@ -615,6 +621,7 @@ impl<T> ObjPool<T> {
     #[inline]
     pub fn iter(&self) -> Iter<'_, T> {
         Iter {
+            len: self.len as usize,
             slots: self.slots.iter().enumerate(),
         }
     }
@@ -643,6 +650,7 @@ impl<T> ObjPool<T> {
     #[inline]
     pub fn iter_mut(&mut self) -> IterMut<'_, T> {
         IterMut {
+            len: self.len as usize,
             slots: self.slots.iter_mut().enumerate(),
         }
     }
@@ -711,6 +719,7 @@ impl<T: Clone> Clone for ObjPool<T> {
 /// An iterator over the occupied slots in a `ObjPool`.
 pub struct IntoIter<T> {
     slots: iter::Enumerate<vec::IntoIter<Slot<T>>>,
+    len: usize,
 }
 
 impl<T> IntoIter<T> {
@@ -732,12 +741,25 @@ impl<T> Iterator for IntoIter<T> {
     fn next(&mut self) -> Option<Self::Item> {
         for (index, slot) in self.slots.by_ref() {
             if let Slot::Occupied(object) = slot {
+                self.len -= 1;
                 return Some((Self::index_to_obj_id(index as u32), object));
             }
         }
         None
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.len, Some(self.len))
+    }
 }
+
+impl<T> ExactSizeIterator for IntoIter<T> {
+    fn len(&self) -> usize {
+        self.len
+    }
+}
+
+impl<T> iter::FusedIterator for IntoIter<T> {}
 
 impl<T> IntoIterator for ObjPool<T> {
     type Item = (ObjId, T);
@@ -746,6 +768,7 @@ impl<T> IntoIterator for ObjPool<T> {
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
         IntoIter {
+            len: self.len as usize,
             slots: self.slots.into_iter().enumerate(),
         }
     }
@@ -771,6 +794,7 @@ impl<T> fmt::Debug for IntoIter<T> {
 /// An iterator over references to the occupied slots in a `ObjPool`.
 pub struct Iter<'a, T: 'a> {
     slots: iter::Enumerate<slice::Iter<'a, Slot<T>>>,
+    len: usize,
 }
 
 impl<'a, T: 'a> Iter<'a, T> {
@@ -787,12 +811,25 @@ impl<'a, T> Iterator for Iter<'a, T> {
     fn next(&mut self) -> Option<Self::Item> {
         for (index, slot) in self.slots.by_ref() {
             if let Slot::Occupied(ref object) = *slot {
+                self.len -= 1;
                 return Some((Self::index_to_obj_id(index as u32), object));
             }
         }
         None
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.len, Some(self.len))
+    }
 }
+
+impl<T> ExactSizeIterator for Iter<'_, T> {
+    fn len(&self) -> usize {
+        self.len
+    }
+}
+
+impl<T> iter::FusedIterator for Iter<'_, T> {}
 
 impl<'a, T> IntoIterator for &'a ObjPool<T> {
     type Item = (ObjId, &'a T);
@@ -813,6 +850,7 @@ impl<'a, T> fmt::Debug for Iter<'a, T> {
 /// An iterator over mutable references to the occupied slots in a `Arena`.
 pub struct IterMut<'a, T: 'a> {
     slots: iter::Enumerate<slice::IterMut<'a, Slot<T>>>,
+    len: usize,
 }
 
 impl<'a, T: 'a> IterMut<'a, T> {
@@ -834,12 +872,25 @@ impl<'a, T> Iterator for IterMut<'a, T> {
     fn next(&mut self) -> Option<Self::Item> {
         for (index, slot) in self.slots.by_ref() {
             if let Slot::Occupied(ref mut object) = *slot {
+                self.len -= 1;
                 return Some((Self::index_to_obj_id(index as u32), object));
             }
         }
         None
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.len, Some(self.len))
+    }
 }
+
+impl<T> ExactSizeIterator for IterMut<'_, T> {
+    fn len(&self) -> usize {
+        self.len
+    }
+}
+
+impl<T> iter::FusedIterator for IterMut<'_, T> {}
 
 impl<'a, T> IntoIterator for &'a mut ObjPool<T> {
     type Item = (ObjId, &'a mut T);
