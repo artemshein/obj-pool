@@ -71,15 +71,68 @@ assert_eq!(*pool.get(id).unwrap(), 42);
 assert_eq!(pool.try_get(id).map(|v| *v), Some(42));
 ```
 
-## ObjId vs usize
+## Comparison with `slab`
 
-| | `obj-pool` `ObjId` | `slab` key |
+`slab` is the most commonly used arena crate in the Rust ecosystem. The table below summarises the differences, followed by benchmark numbers.
+
+### Feature comparison
+
+| | `obj-pool` | `slab` |
 |---|---|---|
-| Width | 32-bit | 64-bit (usize) |
-| `Option<K>` size | 4 bytes (niche) | 16 bytes |
+| Key type | `ObjId` (`NonZeroU32`, 4 bytes) | `usize` (8 bytes) |
+| `Option<Key>` size | **4 bytes** (niche) | 16 bytes |
 | Cross-pool debug check | yes | no |
 | Concurrent variant | `ParObjPool` | no |
 | Serde | optional feature | no |
+
+### Benchmarks
+
+Measured on Apple M-series (aarch64), optimized build (`cargo bench`).
+Each cell shows the median time for the operation over the full collection.
+
+#### Insert (pre-allocated capacity)
+
+| N | obj-pool | slab | winner |
+|---|---|---|---|
+| 100 | 122 ns | 194 ns | **obj-pool −37%** |
+| 1 000 | 1.12 µs | 2.02 µs | **obj-pool −45%** |
+| 10 000 | 10.3 µs | 20.8 µs | **obj-pool −50%** |
+| 100 000 | 95.5 µs | 206 µs | **obj-pool −54%** |
+
+obj-pool's `Vacant` links are `u32` (4 bytes) rather than `usize` (8 bytes), so the free-list nodes fit in half the space, halving cache pressure during sequential inserts.
+
+#### Get (read all occupied slots)
+
+| N | obj-pool | slab | winner |
+|---|---|---|---|
+| 100 | 48 ns | 44 ns | tie |
+| 1 000 | 435 ns | 427 ns | tie |
+| 10 000 | 4.71 µs | 4.68 µs | tie |
+| 100 000 | 46.5 µs | 50.3 µs | **obj-pool −8%** |
+
+Effectively identical at all sizes; both resolve to the same machine code after inlining.
+
+#### Remove + reinsert (free-list / slot reuse)
+
+| N | obj-pool | slab | winner |
+|---|---|---|---|
+| 100 | 132 ns | 254 ns | **obj-pool −48%** |
+| 1 000 | 1.05 µs | 2.21 µs | **obj-pool −52%** |
+| 10 000 | 9.27 µs | 16.5 µs | **obj-pool −44%** |
+| 100 000 | 147 µs | 237 µs | **obj-pool −38%** |
+
+Same cause as insert: the compact `u32` free-list outperforms slab's `usize`-based bookkeeping.
+
+#### Iterate occupied slots (~33% gaps)
+
+| N | obj-pool | slab | winner |
+|---|---|---|---|
+| 100 | 52 ns | 50 ns | tie |
+| 1 000 | 479 ns | 485 ns | tie |
+| 10 000 | 4.66 µs | 4.72 µs | tie |
+| 100 000 | 47.3 µs | 47.0 µs | tie |
+
+Identical after fixing `ObjId::from_index` to use `new_unchecked` in release, which allows the compiler to dead-code-eliminate key construction when the caller discards it with `_`.
 
 ## License
 
