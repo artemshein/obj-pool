@@ -172,14 +172,10 @@ fn bench_memory(c: &mut Criterion) {
     // This benchmark doesn't measure time — it prints sizes as throughput=bytes
     // so they show up in the report. Use n=1 so criterion runs it quickly.
     g.bench_function("ObjId size (bytes)", |b| {
-        b.iter(|| {
-            std::hint::black_box(std::mem::size_of::<obj_pool::ObjId>())
-        });
+        b.iter(|| std::hint::black_box(std::mem::size_of::<obj_pool::ObjId>()));
     });
     g.bench_function("Option<ObjId> size (bytes)", |b| {
-        b.iter(|| {
-            std::hint::black_box(std::mem::size_of::<Option<obj_pool::ObjId>>())
-        });
+        b.iter(|| std::hint::black_box(std::mem::size_of::<Option<obj_pool::ObjId>>()));
     });
     g.bench_function("slab key (usize) size (bytes)", |b| {
         b.iter(|| std::hint::black_box(std::mem::size_of::<usize>()));
