@@ -21,3 +21,11 @@ serde = { version = "1.0", features = ["derive"], optional = true }
 [features]
 default = []
 serde_support = ["serde"]
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+slab = "0.4"
+
+[[bench]]
+name = "comparison"
+harness = false
