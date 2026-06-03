@@ -433,7 +433,7 @@ impl<T> ObjPool<T> {
         match self.slots.get(index) {
             None => None,
             Some(&Slot::Vacant(_)) => None,
-            Some(&Slot::Occupied(ref object)) => Some(object),
+            Some(Slot::Occupied(object)) => Some(object),
         }
     }
 
@@ -482,8 +482,8 @@ impl<T> ObjPool<T> {
     pub unsafe fn get_unchecked(&self, obj_id: ObjId) -> &T {
         match self.slots.get(Self::obj_id_to_index(obj_id) as usize) {
             None => unreachable(),
-            Some(&Slot::Vacant(_)) => unreachable(),
-            Some(&Slot::Occupied(ref object)) => object,
+            Some(Slot::Vacant(_)) => unreachable(),
+            Some(Slot::Occupied(object)) => object,
         }
     }
 
@@ -613,7 +613,7 @@ impl<T> ObjPool<T> {
     /// assert_eq!(iterator.next(), Some((ObjPool::<usize>::index_to_obj_id(2), &4)));
     /// ```
     #[inline]
-    pub fn iter(&self) -> Iter<T> {
+    pub fn iter(&self) -> Iter<'_, T> {
         Iter {
             slots: self.slots.iter().enumerate(),
         }
@@ -641,7 +641,7 @@ impl<T> ObjPool<T> {
     /// assert_eq!(iterator.next(), Some((ObjPool::<String>::index_to_obj_id(2), &"2 two".to_string())));
     /// ```
     #[inline]
-    pub fn iter_mut(&mut self) -> IterMut<T> {
+    pub fn iter_mut(&mut self) -> IterMut<'_, T> {
         IterMut {
             slots: self.slots.iter_mut().enumerate(),
         }
@@ -730,7 +730,7 @@ impl<T> Iterator for IntoIter<T> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some((index, slot)) = self.slots.next() {
+        for (index, slot) in self.slots.by_ref() {
             if let Slot::Occupied(object) = slot {
                 return Some((Self::index_to_obj_id(index as u32), object));
             }
@@ -785,7 +785,7 @@ impl<'a, T> Iterator for Iter<'a, T> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some((index, slot)) = self.slots.next() {
+        for (index, slot) in self.slots.by_ref() {
             if let Slot::Occupied(ref object) = *slot {
                 return Some((Self::index_to_obj_id(index as u32), object));
             }
@@ -832,7 +832,7 @@ impl<'a, T> Iterator for IterMut<'a, T> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some((index, slot)) = self.slots.next() {
+        for (index, slot) in self.slots.by_ref() {
             if let Slot::Occupied(ref mut object) = *slot {
                 return Some((Self::index_to_obj_id(index as u32), object));
             }

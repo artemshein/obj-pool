@@ -6,11 +6,17 @@ use std::cell::Cell;
 use std::convert::TryInto;
 
 thread_local! {
-  static COUNTER: Cell<usize> = Cell::new(0);
+  static COUNTER: Cell<usize> = const { Cell::new(0) };
 }
 
 pub struct ParObjPool<T, const S: usize> {
     shards: [RwLock<ObjPool<T>>; S],
+}
+
+impl<T, const S: usize> Default for ParObjPool<T, S> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<T, const S: usize> ParObjPool<T, S> {
@@ -37,7 +43,7 @@ impl<T, const S: usize> ParObjPool<T, S> {
         self.shards[shard_index].write().remove(obj_id)
     }
 
-    pub fn get(&self, obj_id: ObjId) -> Option<MappedRwLockReadGuard<T>> {
+    pub fn get(&self, obj_id: ObjId) -> Option<MappedRwLockReadGuard<'_, T>> {
         let (shard_index, obj_id) = self.obj_id_from_external(obj_id);
         RwLockReadGuard::try_map(self.shards[shard_index].read(), |obj_pool| {
             obj_pool.get(obj_id)
@@ -45,15 +51,15 @@ impl<T, const S: usize> ParObjPool<T, S> {
         .ok()
     }
 
-    pub fn try_get(&self, obj_id: ObjId) -> Option<MappedRwLockReadGuard<T>> {
+    pub fn try_get(&self, obj_id: ObjId) -> Option<MappedRwLockReadGuard<'_, T>> {
         let (shard_index, obj_id) = self.obj_id_from_external(obj_id);
-        RwLockReadGuard::try_map(if let Some(r) = self.shards[shard_index].try_read() { r } else { return None }, |obj_pool| {
+        RwLockReadGuard::try_map(self.shards[shard_index].try_read()?, |obj_pool| {
             obj_pool.get(obj_id)
         })
             .ok()
     }
 
-    pub fn get_mut(&self, obj_id: ObjId) -> Option<MappedRwLockWriteGuard<T>> {
+    pub fn get_mut(&self, obj_id: ObjId) -> Option<MappedRwLockWriteGuard<'_, T>> {
         let (shard_index, obj_id) = self.obj_id_from_external(obj_id);
         RwLockWriteGuard::try_map(self.shards[shard_index].write(), |obj_pool| {
             obj_pool.get_mut(obj_id)
@@ -61,9 +67,9 @@ impl<T, const S: usize> ParObjPool<T, S> {
         .ok()
     }
 
-    pub fn try_get_mut(&self, obj_id: ObjId) -> Option<MappedRwLockWriteGuard<T>> {
+    pub fn try_get_mut(&self, obj_id: ObjId) -> Option<MappedRwLockWriteGuard<'_, T>> {
         let (shard_index, obj_id) = self.obj_id_from_external(obj_id);
-        RwLockWriteGuard::try_map(if let Some(w) = self.shards[shard_index].try_write() { w } else { return None }, |obj_pool| {
+        RwLockWriteGuard::try_map(self.shards[shard_index].try_write()?, |obj_pool| {
             obj_pool.get_mut(obj_id)
         })
             .ok()
