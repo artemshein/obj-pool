@@ -27,7 +27,9 @@
 //! * [Doubly linked list](https://github.com/artemshein/obj-pool/blob/master/examples/linked_list.rs)
 //! * [Splay tree](https://github.com/artemshein/obj-pool/blob/master/examples/splay_tree.rs)
 use std::{
-    fmt, iter, mem,
+    fmt,
+    hint::unreachable_unchecked,
+    iter, mem,
     num::{NonZeroU32, ParseIntError},
     ops::{Index, IndexMut},
     ptr,
@@ -37,7 +39,6 @@ use std::{
 
 use std::ops::Deref;
 use std::slice;
-use unreachable::unreachable;
 
 #[cfg(feature = "serde_support")]
 use serde::{Deserialize, Serialize};
@@ -601,8 +602,8 @@ impl<T> ObjPool<T> {
     /// ```
     pub unsafe fn get_unchecked(&self, obj_id: ObjId) -> &T {
         match self.slots.get(self.obj_id_to_index(obj_id) as usize) {
-            None => unsafe { unreachable() },
-            Some(Slot::Vacant(_)) => unsafe { unreachable() },
+            None => unsafe { unreachable_unchecked() },
+            Some(Slot::Vacant(_)) => unsafe { unreachable_unchecked() },
             Some(Slot::Occupied(object)) => object,
         }
     }
@@ -626,9 +627,9 @@ impl<T> ObjPool<T> {
     pub unsafe fn get_unchecked_mut(&mut self, obj_id: ObjId) -> &mut T {
         let index = self.obj_id_to_index(obj_id) as usize;
         match self.slots.get_mut(index) {
-            Some(&mut Slot::Vacant(_)) => unsafe { unreachable() },
+            Some(&mut Slot::Vacant(_)) => unsafe { unreachable_unchecked() },
             Some(&mut Slot::Occupied(ref mut object)) => object,
-            _ => unsafe { unreachable() },
+            _ => unsafe { unreachable_unchecked() },
         }
     }
 
