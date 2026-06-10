@@ -12,6 +12,14 @@
 //!
 //! * `ObjId` is always 32-bit long.
 //!
+//! # Debug-only misuse detection
+//!
+//! In debug builds every pool mixes a random pool-specific offset into the `ObjId`s it issues.
+//! An `ObjId` used with a different pool than the one that created it then decodes to a vacant
+//! or out-of-bounds slot with overwhelming probability, so the lookup returns `None` (or panics
+//! when indexing) instead of silently returning an unrelated object. Release builds skip the
+//! masking entirely: an `ObjId` is just the slot index plus one.
+//!
 //! # Examples
 //!
 //! Some data structures built using `ObjPool<T>`:
@@ -53,14 +61,20 @@ enum Slot<T> {
 
 /// An id of the object in an `ObjPool`.
 ///
-/// In release it is basically just an index in the underlying vector, but in debug it's an `index` +
-/// `ObjPool`-specific `offset`. This is made to be able to check `ObjId` if it's from the same
-/// `ObjPool` we are trying to get an object from.
+/// In release builds it is basically just an index in the underlying vector (plus one). In debug
+/// builds every pool additionally mixes a random pool-specific offset into each `ObjId` it
+/// issues, so an `ObjId` created by one pool is (with overwhelming probability) rejected when
+/// used with another pool instead of silently aliasing an unrelated object.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 #[cfg_attr(feature = "serde_support", derive(Serialize, Deserialize))]
 pub struct ObjId(pub NonZeroU32);
 
 impl ObjId {
+    /// Creates an `ObjId` from a raw index, without any pool-specific masking.
+    ///
+    /// Note: in debug builds every pool mixes a random pool-specific offset into the ids it
+    /// issues, so to create an id valid for a particular pool use
+    /// [`ObjPool::index_to_obj_id`] instead.
     pub fn from_index(index: u32) -> Self {
         debug_assert!(index < u32::MAX, "index out of range");
         // SAFETY: index + 1 is non-zero for any index < u32::MAX, which the
@@ -71,6 +85,10 @@ impl ObjId {
         Self(unsafe { NonZeroU32::new_unchecked(index + 1) })
     }
 
+    /// Converts the `ObjId` into a raw index, without any pool-specific unmasking.
+    ///
+    /// Note: in debug builds every pool mixes a random pool-specific offset into the ids it
+    /// issues, so to get the slot index of an id use [`ObjPool::obj_id_to_index`] instead.
     pub const fn into_index(self) -> u32 {
         self.0.get() - 1
     }
@@ -104,6 +122,85 @@ impl From<NonZeroU32> for ObjId {
     }
 }
 
+/// Debug-only random per-pool offset which is mixed into every `ObjId` a pool issues.
+///
+/// An `ObjId` is rotated by the offset within the `NonZeroU32` value domain `[1, u32::MAX]`,
+/// so an id of one pool decodes to an (almost certainly out-of-bounds or vacant) garbage index
+/// in any other pool instead of silently aliasing an unrelated object. In release builds this
+/// is a zero-sized no-op.
+#[derive(Clone, Copy)]
+pub(crate) struct PoolTag {
+    #[cfg(debug_assertions)]
+    offset: u32,
+}
+
+impl PoolTag {
+    /// A tag with no offset assigned yet; ids pass through unchanged.
+    pub(crate) const fn empty() -> Self {
+        PoolTag {
+            #[cfg(debug_assertions)]
+            offset: 0,
+        }
+    }
+
+    /// A tag with a random offset already assigned (in debug builds).
+    pub(crate) fn random() -> Self {
+        let mut tag = Self::empty();
+        tag.randomize();
+        tag
+    }
+
+    /// Assigns a random offset if none is assigned yet (in debug builds).
+    #[inline]
+    pub(crate) fn randomize(&mut self) {
+        #[cfg(debug_assertions)]
+        if self.offset == 0 {
+            self.offset = random_offset();
+        }
+    }
+
+    /// Mixes the pool offset into a raw `ObjId`.
+    #[inline]
+    pub(crate) fn mask_id(self, obj_id: ObjId) -> ObjId {
+        #[cfg(debug_assertions)]
+        return ObjId(rotate_id(obj_id.0, self.offset as u64));
+        #[cfg(not(debug_assertions))]
+        obj_id
+    }
+
+    /// Removes the pool offset from an external `ObjId`.
+    #[inline]
+    pub(crate) fn unmask_id(self, obj_id: ObjId) -> ObjId {
+        #[cfg(debug_assertions)]
+        return ObjId(rotate_id(obj_id.0, ID_DOMAIN - self.offset as u64));
+        #[cfg(not(debug_assertions))]
+        obj_id
+    }
+}
+
+/// Size of the `NonZeroU32` value domain `[1, u32::MAX]` an `ObjId` lives in.
+#[cfg(debug_assertions)]
+const ID_DOMAIN: u64 = u32::MAX as u64;
+
+/// Rotates `value` by `offset` positions within the `NonZeroU32` value domain. This is a
+/// bijection on `[1, u32::MAX]` for any fixed `offset <= ID_DOMAIN`, and rotating back is
+/// rotating by `ID_DOMAIN - offset`.
+#[cfg(debug_assertions)]
+fn rotate_id(value: NonZeroU32, offset: u64) -> NonZeroU32 {
+    let rotated = ((value.get() as u64 - 1) + offset) % ID_DOMAIN;
+    NonZeroU32::new(rotated as u32 + 1).expect("rotation preserves non-zero")
+}
+
+/// Returns a random per-pool offset in `[1, u32::MAX - 1]`, so that it is never zero (the
+/// "not assigned yet" sentinel) and never a multiple of `ID_DOMAIN` (an identity rotation).
+#[cfg(debug_assertions)]
+fn random_offset() -> u32 {
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
+    let random = RandomState::new().build_hasher().finish() as u32;
+    1 + random % (u32::MAX - 1)
+}
+
 /// An object pool.
 ///
 /// `ObjPool<T>` holds an array of slots for storing objects.
@@ -125,9 +222,9 @@ impl From<NonZeroU32> for ObjId {
 ///
 /// let mut obj_pool = ObjPool::new();
 /// let a = obj_pool.insert(10);
-/// assert_eq!(a.into_index(), 0);
+/// assert_eq!(obj_pool.obj_id_to_index(a), 0);
 /// let b = obj_pool.insert(20);
-/// assert_eq!(b.into_index(), 1);
+/// assert_eq!(obj_pool.obj_id_to_index(b), 1);
 ///
 /// assert_ne!(a, b); // ids are not the same
 ///
@@ -166,6 +263,9 @@ pub struct ObjPool<T> {
 
     /// Index of the first vacant slot in the linked list.
     head: u32,
+
+    /// Debug-only random tag mixed into every `ObjId` of this pool.
+    tag: PoolTag,
 }
 
 impl<T> AsRef<ObjPool<T>> for ObjPool<T> {
@@ -198,19 +298,28 @@ impl<T> ObjPool<T> {
             slots: Vec::new(),
             len: 0,
             head: u32::MAX,
+            // `new` is const, so the random tag is assigned lazily on the first insertion.
+            tag: PoolTag::empty(),
         }
     }
 
     /// Get an index in the `ObjPool` for the given `ObjId`.
+    ///
+    /// In debug builds this removes the pool-specific random offset from the id, so the result
+    /// is only meaningful for ids issued by this pool.
     #[inline]
-    pub const fn obj_id_to_index(obj_id: ObjId) -> u32 {
-        obj_id.into_index()
+    pub fn obj_id_to_index(&self, obj_id: ObjId) -> u32 {
+        self.tag.unmask_id(obj_id).into_index()
     }
 
     /// Make an `ObjId` from an index in this `ObjPool`.
+    ///
+    /// In debug builds the id is masked with the pool-specific random offset. For a pool created
+    /// with `ObjPool::new` the offset is assigned on the first insertion, so ids created before
+    /// that are not valid afterwards.
     #[inline]
-    pub fn index_to_obj_id(index: u32) -> ObjId {
-        ObjId::from_index(index)
+    pub fn index_to_obj_id(&self, index: u32) -> ObjId {
+        self.tag.mask_id(ObjId::from_index(index))
     }
 
     /// Constructs a new, empty object pool with the specified capacity (number of slots).
@@ -244,6 +353,7 @@ impl<T> ObjPool<T> {
             slots: Vec::with_capacity(cap),
             len: 0,
             head: u32::MAX,
+            tag: PoolTag::random(),
         }
     }
 
@@ -319,7 +429,8 @@ impl<T> ObjPool<T> {
     /// ```
     #[inline]
     pub fn next_vacant(&mut self) -> ObjId {
-        Self::index_to_obj_id(if self.head == u32::MAX {
+        self.tag.randomize();
+        self.index_to_obj_id(if self.head == u32::MAX {
             self.len
         } else {
             self.head
@@ -341,11 +452,12 @@ impl<T> ObjPool<T> {
     /// assert!(a != b);
     /// ```
     pub fn insert(&mut self, object: T) -> ObjId {
+        self.tag.randomize();
         self.len += 1;
 
         if self.head == u32::MAX {
             self.slots.push(Slot::Occupied(object));
-            Self::index_to_obj_id(self.len - 1)
+            self.index_to_obj_id(self.len - 1)
         } else {
             let index = self.head;
             match self.slots[index as usize] {
@@ -355,7 +467,7 @@ impl<T> ObjPool<T> {
                 }
                 Slot::Occupied(_) => unreachable!(),
             }
-            Self::index_to_obj_id(index)
+            self.index_to_obj_id(index)
         }
     }
 
@@ -378,7 +490,7 @@ impl<T> ObjPool<T> {
     /// assert_eq!(obj_pool.remove(a), None);
     /// ```
     pub fn remove(&mut self, obj_id: ObjId) -> Option<T> {
-        let index = Self::obj_id_to_index(obj_id);
+        let index = self.obj_id_to_index(obj_id);
         match self.slots.get_mut(index as usize) {
             None => None,
             Some(&mut Slot::Vacant(_)) => None,
@@ -435,7 +547,7 @@ impl<T> ObjPool<T> {
     /// assert_eq!(obj_pool.get(obj_id), None);
     /// ```
     pub fn get(&self, obj_id: ObjId) -> Option<&T> {
-        let index = Self::obj_id_to_index(obj_id) as usize;
+        let index = self.obj_id_to_index(obj_id) as usize;
         match self.slots.get(index) {
             None => None,
             Some(&Slot::Vacant(_)) => None,
@@ -461,7 +573,7 @@ impl<T> ObjPool<T> {
     /// ```
     #[inline]
     pub fn get_mut(&mut self, obj_id: ObjId) -> Option<&mut T> {
-        let index = Self::obj_id_to_index(obj_id) as usize;
+        let index = self.obj_id_to_index(obj_id) as usize;
         match self.slots.get_mut(index) {
             None => None,
             Some(&mut Slot::Vacant(_)) => None,
@@ -486,7 +598,7 @@ impl<T> ObjPool<T> {
     /// unsafe { assert_eq!(&*obj_pool.get_unchecked(obj_id), &"hello") }
     /// ```
     pub unsafe fn get_unchecked(&self, obj_id: ObjId) -> &T {
-        match self.slots.get(Self::obj_id_to_index(obj_id) as usize) {
+        match self.slots.get(self.obj_id_to_index(obj_id) as usize) {
             None => unsafe { unreachable() },
             Some(Slot::Vacant(_)) => unsafe { unreachable() },
             Some(Slot::Occupied(object)) => object,
@@ -510,7 +622,7 @@ impl<T> ObjPool<T> {
     /// unsafe { assert_eq!(&*obj_pool.get_unchecked_mut(obj_id), &"hello") }
     /// ```
     pub unsafe fn get_unchecked_mut(&mut self, obj_id: ObjId) -> &mut T {
-        let index = Self::obj_id_to_index(obj_id) as usize;
+        let index = self.obj_id_to_index(obj_id) as usize;
         match self.slots.get_mut(index) {
             Some(&mut Slot::Vacant(_)) => unsafe { unreachable() },
             Some(&mut Slot::Occupied(ref mut object)) => object,
@@ -614,15 +726,16 @@ impl<T> ObjPool<T> {
     /// obj_pool.insert(4);
     ///
     /// let mut iterator = obj_pool.iter();
-    /// assert_eq!(iterator.next(), Some((ObjPool::<usize>::index_to_obj_id(0), &1)));
-    /// assert_eq!(iterator.next(), Some((ObjPool::<usize>::index_to_obj_id(1), &2)));
-    /// assert_eq!(iterator.next(), Some((ObjPool::<usize>::index_to_obj_id(2), &4)));
+    /// assert_eq!(iterator.next(), Some((obj_pool.index_to_obj_id(0), &1)));
+    /// assert_eq!(iterator.next(), Some((obj_pool.index_to_obj_id(1), &2)));
+    /// assert_eq!(iterator.next(), Some((obj_pool.index_to_obj_id(2), &4)));
     /// ```
     #[inline]
     pub fn iter(&self) -> Iter<'_, T> {
         Iter {
             len: self.len as usize,
             slots: self.slots.iter().enumerate(),
+            tag: self.tag,
         }
     }
 
@@ -634,24 +747,29 @@ impl<T> ObjPool<T> {
     /// use obj_pool::ObjPool;
     ///
     /// let mut obj_pool = ObjPool::new();
-    /// obj_pool.insert("zero".to_string());
+    /// let a = obj_pool.insert("zero".to_string());
     /// obj_pool.insert("one".to_string());
     /// obj_pool.insert("two".to_string());
     ///
     /// for (obj_id, object) in obj_pool.iter_mut() {
-    ///     *object = obj_id.into_index().to_string() + " " + object;
+    ///     if obj_id == a {
+    ///         *object += "!";
+    ///     } else {
+    ///         *object += "?";
+    ///     }
     /// }
     ///
     /// let mut iterator = obj_pool.iter();
-    /// assert_eq!(iterator.next(), Some((ObjPool::<String>::index_to_obj_id(0), &"0 zero".to_string())));
-    /// assert_eq!(iterator.next(), Some((ObjPool::<String>::index_to_obj_id(1), &"1 one".to_string())));
-    /// assert_eq!(iterator.next(), Some((ObjPool::<String>::index_to_obj_id(2), &"2 two".to_string())));
+    /// assert_eq!(iterator.next(), Some((obj_pool.index_to_obj_id(0), &"zero!".to_string())));
+    /// assert_eq!(iterator.next(), Some((obj_pool.index_to_obj_id(1), &"one?".to_string())));
+    /// assert_eq!(iterator.next(), Some((obj_pool.index_to_obj_id(2), &"two?".to_string())));
     /// ```
     #[inline]
     pub fn iter_mut(&mut self) -> IterMut<'_, T> {
         IterMut {
             len: self.len as usize,
             slots: self.slots.iter_mut().enumerate(),
+            tag: self.tag,
         }
     }
 
@@ -712,6 +830,8 @@ impl<T: Clone> Clone for ObjPool<T> {
             slots: self.slots.clone(),
             len: self.len,
             head: self.head,
+            // The clone keeps the tag, so ids issued by the original pool stay valid for it.
+            tag: self.tag,
         }
     }
 }
@@ -720,18 +840,7 @@ impl<T: Clone> Clone for ObjPool<T> {
 pub struct IntoIter<T> {
     slots: iter::Enumerate<vec::IntoIter<Slot<T>>>,
     len: usize,
-}
-
-impl<T> IntoIter<T> {
-    #[inline]
-    pub const fn obj_id_to_index(obj_id: ObjId) -> u32 {
-        obj_id.into_index()
-    }
-
-    #[inline]
-    pub fn index_to_obj_id(index: u32) -> ObjId {
-        ObjId::from_index(index)
-    }
+    tag: PoolTag,
 }
 
 impl<T> Iterator for IntoIter<T> {
@@ -742,7 +851,7 @@ impl<T> Iterator for IntoIter<T> {
         for (index, slot) in self.slots.by_ref() {
             if let Slot::Occupied(object) = slot {
                 self.len -= 1;
-                return Some((Self::index_to_obj_id(index as u32), object));
+                return Some((self.tag.mask_id(ObjId::from_index(index as u32)), object));
             }
         }
         None
@@ -769,6 +878,7 @@ impl<T> IntoIterator for ObjPool<T> {
     fn into_iter(self) -> Self::IntoIter {
         IntoIter {
             len: self.len as usize,
+            tag: self.tag,
             slots: self.slots.into_iter().enumerate(),
         }
     }
@@ -795,13 +905,7 @@ impl<T> fmt::Debug for IntoIter<T> {
 pub struct Iter<'a, T: 'a> {
     slots: iter::Enumerate<slice::Iter<'a, Slot<T>>>,
     len: usize,
-}
-
-impl<'a, T: 'a> Iter<'a, T> {
-    #[inline]
-    pub fn index_to_obj_id(index: u32) -> ObjId {
-        ObjId::from_index(index)
-    }
+    tag: PoolTag,
 }
 
 impl<'a, T> Iterator for Iter<'a, T> {
@@ -812,7 +916,7 @@ impl<'a, T> Iterator for Iter<'a, T> {
         for (index, slot) in self.slots.by_ref() {
             if let Slot::Occupied(ref object) = *slot {
                 self.len -= 1;
-                return Some((Self::index_to_obj_id(index as u32), object));
+                return Some((self.tag.mask_id(ObjId::from_index(index as u32)), object));
             }
         }
         None
@@ -851,18 +955,7 @@ impl<'a, T> fmt::Debug for Iter<'a, T> {
 pub struct IterMut<'a, T: 'a> {
     slots: iter::Enumerate<slice::IterMut<'a, Slot<T>>>,
     len: usize,
-}
-
-impl<'a, T: 'a> IterMut<'a, T> {
-    #[inline]
-    pub const fn obj_id_to_index(obj_id: ObjId) -> u32 {
-        obj_id.into_index()
-    }
-
-    #[inline]
-    pub fn index_to_obj_id(index: u32) -> ObjId {
-        ObjId::from_index(index)
-    }
+    tag: PoolTag,
 }
 
 impl<'a, T> Iterator for IterMut<'a, T> {
@@ -873,7 +966,7 @@ impl<'a, T> Iterator for IterMut<'a, T> {
         for (index, slot) in self.slots.by_ref() {
             if let Slot::Occupied(ref mut object) = *slot {
                 self.len -= 1;
-                return Some((Self::index_to_obj_id(index as u32), object));
+                return Some((self.tag.mask_id(ObjId::from_index(index as u32)), object));
             }
         }
         None
@@ -1119,10 +1212,44 @@ mod tests {
         let obj_pool: ObjPool<usize> = [10, 20, 30, 40].iter().cloned().collect();
 
         let mut it = obj_pool.iter();
-        assert_eq!(it.next(), Some((ObjPool::<usize>::index_to_obj_id(0), &10)));
-        assert_eq!(it.next(), Some((ObjPool::<usize>::index_to_obj_id(1), &20)));
-        assert_eq!(it.next(), Some((ObjPool::<usize>::index_to_obj_id(2), &30)));
-        assert_eq!(it.next(), Some((ObjPool::<usize>::index_to_obj_id(3), &40)));
+        assert_eq!(it.next(), Some((obj_pool.index_to_obj_id(0), &10)));
+        assert_eq!(it.next(), Some((obj_pool.index_to_obj_id(1), &20)));
+        assert_eq!(it.next(), Some((obj_pool.index_to_obj_id(2), &30)));
+        assert_eq!(it.next(), Some((obj_pool.index_to_obj_id(3), &40)));
         assert_eq!(it.next(), None);
+    }
+
+    #[test]
+    fn obj_id_index_round_trip() {
+        let mut obj_pool = ObjPool::new();
+        let a = obj_pool.insert(10);
+        let b = obj_pool.insert(20);
+
+        assert_eq!(obj_pool.obj_id_to_index(a), 0);
+        assert_eq!(obj_pool.obj_id_to_index(b), 1);
+        assert_eq!(obj_pool.index_to_obj_id(0), a);
+        assert_eq!(obj_pool.index_to_obj_id(1), b);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn foreign_obj_id_is_rejected() {
+        let mut a = ObjPool::new();
+        let id = a.insert(10);
+
+        let mut b = ObjPool::new();
+        b.insert(20);
+        // Make sure the pools did not roll the same random offset, so the check
+        // below is deterministic: `id` unmasks in `b` to a non-zero index, which
+        // is out of bounds for a pool with a single slot.
+        while b.tag.offset == a.tag.offset {
+            b = ObjPool::new();
+            b.insert(20);
+        }
+
+        assert_eq!(b.get(id), None);
+        assert_eq!(b.get_mut(id), None);
+        assert_eq!(b.remove(id), None);
+        assert_eq!(b.get(b.index_to_obj_id(0)), Some(&20));
     }
 }

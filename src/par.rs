@@ -13,10 +13,19 @@ thread_local! {
 ///
 /// An external `ObjId` packs the shard index into its highest `SHARD_BITS`
 /// bits, where `SHARD_BITS` is the smallest number of bits able to represent
-/// all shard indices `0..S`. The remaining low bits hold the object id inside
-/// the shard, so each shard can hold up to `2^(32 - SHARD_BITS) - 1` objects.
+/// all shard indices `0..S`. The remaining low bits hold the object index
+/// inside the shard, so each shard can hold up to `2^(32 - SHARD_BITS) - 1`
+/// objects.
+///
+/// In debug builds every `ParObjPool` additionally mixes its own random tag
+/// into the external `ObjId`s it issues, so ids of one pool are (with
+/// overwhelming probability) rejected by any other pool. See the crate-level
+/// documentation for details.
 pub struct ParObjPool<T, const S: usize> {
     shards: [RwLock<ObjPool<T>>; S],
+
+    /// Debug-only random tag mixed into every external `ObjId` of this pool.
+    tag: PoolTag,
 }
 
 impl<T, const S: usize> Default for ParObjPool<T, S> {
@@ -49,6 +58,7 @@ impl<T, const S: usize> ParObjPool<T, S> {
         shards.resize_with(S, || RwLock::new(ObjPool::<T>::new()));
         Self {
             shards: shards.try_into().expect("invalid array"),
+            tag: PoolTag::random(),
         }
     }
 
@@ -59,42 +69,48 @@ impl<T, const S: usize> ParObjPool<T, S> {
             v
         });
         let shard_index = counter % S;
-        self.obj_id_to_external(self.shards[shard_index].write().insert(object), shard_index)
+        let mut shard = self.shards[shard_index].write();
+        let inner = shard.insert(object);
+        let index = shard.obj_id_to_index(inner);
+        drop(shard);
+        self.obj_id_to_external(shard_index, index)
     }
 
     pub fn remove(&self, obj_id: ObjId) -> Option<T> {
-        let (shard_index, obj_id) = self.obj_id_from_external(obj_id);
-        self.shards[shard_index].write().remove(obj_id)
+        let (shard_index, index) = self.obj_id_from_external(obj_id)?;
+        let mut shard = self.shards[shard_index].write();
+        let inner = shard.index_to_obj_id(index);
+        shard.remove(inner)
     }
 
     pub fn get(&self, obj_id: ObjId) -> Option<MappedRwLockReadGuard<'_, T>> {
-        let (shard_index, obj_id) = self.obj_id_from_external(obj_id);
+        let (shard_index, index) = self.obj_id_from_external(obj_id)?;
         RwLockReadGuard::try_map(self.shards[shard_index].read(), |obj_pool| {
-            obj_pool.get(obj_id)
+            obj_pool.get(obj_pool.index_to_obj_id(index))
         })
         .ok()
     }
 
     pub fn try_get(&self, obj_id: ObjId) -> Option<MappedRwLockReadGuard<'_, T>> {
-        let (shard_index, obj_id) = self.obj_id_from_external(obj_id);
+        let (shard_index, index) = self.obj_id_from_external(obj_id)?;
         RwLockReadGuard::try_map(self.shards[shard_index].try_read()?, |obj_pool| {
-            obj_pool.get(obj_id)
+            obj_pool.get(obj_pool.index_to_obj_id(index))
         })
         .ok()
     }
 
     pub fn get_mut(&self, obj_id: ObjId) -> Option<MappedRwLockWriteGuard<'_, T>> {
-        let (shard_index, obj_id) = self.obj_id_from_external(obj_id);
+        let (shard_index, index) = self.obj_id_from_external(obj_id)?;
         RwLockWriteGuard::try_map(self.shards[shard_index].write(), |obj_pool| {
-            obj_pool.get_mut(obj_id)
+            obj_pool.get_mut(obj_pool.index_to_obj_id(index))
         })
         .ok()
     }
 
     pub fn try_get_mut(&self, obj_id: ObjId) -> Option<MappedRwLockWriteGuard<'_, T>> {
-        let (shard_index, obj_id) = self.obj_id_from_external(obj_id);
+        let (shard_index, index) = self.obj_id_from_external(obj_id)?;
         RwLockWriteGuard::try_map(self.shards[shard_index].try_write()?, |obj_pool| {
-            obj_pool.get_mut(obj_id)
+            obj_pool.get_mut(obj_pool.index_to_obj_id(index))
         })
         .ok()
     }
@@ -118,31 +134,28 @@ impl<T, const S: usize> ParObjPool<T, S> {
         self.shards.iter().map(|s| s.read().capacity()).sum()
     }
 
-    fn obj_id_to_external(&self, obj_id: ObjId, shard_index: usize) -> ObjId {
+    fn obj_id_to_external(&self, shard_index: usize, index: u32) -> ObjId {
         debug_assert!(
-            obj_id.get() <= Self::INDEX_MASK,
-            "shard is full: object id does not fit into the index bits"
+            index < Self::INDEX_MASK,
+            "shard is full: object index does not fit into the index bits"
         );
-        if Self::SHARD_BITS == 0 {
-            obj_id
+        let raw = if Self::SHARD_BITS == 0 {
+            index
         } else {
-            ObjId(
-                NonZeroU32::new((shard_index as u32) << Self::INDEX_BITS | obj_id.get())
-                    .expect("invalid value"),
-            )
-        }
+            (shard_index as u32) << Self::INDEX_BITS | index
+        };
+        self.tag.mask_id(ObjId::from_index(raw))
     }
 
-    fn obj_id_from_external(&self, obj_id: ObjId) -> (usize, ObjId) {
-        if Self::SHARD_BITS == 0 {
-            (0, obj_id)
+    fn obj_id_from_external(&self, obj_id: ObjId) -> Option<(usize, u32)> {
+        let raw = self.tag.unmask_id(obj_id).into_index();
+        let (shard_index, index) = if Self::SHARD_BITS == 0 {
+            (0, raw)
         } else {
-            let v = obj_id.get();
-            (
-                (v >> Self::INDEX_BITS) as usize,
-                ObjId(NonZeroU32::new(v & Self::INDEX_MASK).expect("invalid value")),
-            )
-        }
+            ((raw >> Self::INDEX_BITS) as usize, raw & Self::INDEX_MASK)
+        };
+        // A foreign or corrupted id can decode to a nonexistent shard.
+        (shard_index < S).then_some((shard_index, index))
     }
 }
 
@@ -182,7 +195,7 @@ mod tests {
         // More inserts than shards, so every shard is exercised.
         let keys: Vec<_> = (0..S * 3 + 1).map(|v| (o.insert(v), v)).collect();
         for (k, v) in &keys {
-            let (shard_index, _) = o.obj_id_from_external(*k);
+            let (shard_index, _) = o.obj_id_from_external(*k).expect("id of this pool");
             assert!(shard_index < S);
             assert_eq!(o.get(*k).map(|v| *v), Some(*v));
         }
@@ -200,5 +213,24 @@ mod tests {
         insert_get_remove::<16>();
         insert_get_remove::<64>();
         insert_get_remove::<100>();
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn foreign_ids_are_rejected() {
+        let a = ParObjPool::<usize, 4>::new();
+        let id = a.insert(10);
+
+        let mut b = ParObjPool::<usize, 4>::new();
+        // Make sure the pools did not roll the same random tag.
+        while b.tag.offset == a.tag.offset {
+            b = ParObjPool::new();
+        }
+        let own = b.insert(20);
+
+        assert!(b.get(id).is_none());
+        assert!(b.get_mut(id).is_none());
+        assert!(b.remove(id).is_none());
+        assert_eq!(b.get(own).map(|v| *v), Some(20));
     }
 }
