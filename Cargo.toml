@@ -1,17 +1,14 @@
 [package]
 name = "obj-pool"
-version = "0.6.0"
+version = "0.7.0"
 authors = ["Artem Shein <sc-github@aisys.ru>", "Stjepan Glavina <stjepang@gmail.com>"]
 description = "A simple object arena"
 repository = "https://github.com/artemshein/obj-pool"
 documentation = "https://docs.rs/obj-pool"
 readme = "README.md"
-license = "Apache-2.0/MIT"
+license = "Apache-2.0 OR MIT"
 categories = ["memory-management"]
 edition = "2024"
-
-[badges]
-travis-ci = { repository = "artemshein/obj-pool" }
 
 [dependencies]
 parking_lot = "0.12.5"

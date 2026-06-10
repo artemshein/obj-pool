@@ -110,7 +110,8 @@ where
                 break;
             };
 
-            if (self.obj_pool[g].children[0] == Some(p)) == (self.obj_pool[p].children[0] == Some(c))
+            if (self.obj_pool[g].children[0] == Some(p))
+                == (self.obj_pool[p].children[0] == Some(c))
             {
                 // Zig-zig step.
                 self.rotate(g, p);
