@@ -91,17 +91,13 @@ where
 
     /// Splays a node, rebalancing the tree in process.
     fn splay(&mut self, c: ObjId) {
-        loop {
-            // Variables:
-            // - `c` is the current node
-            // - `p` is it's parent
-            // - `g` is it's grandparent
+        // Variables:
+        // - `c` is the current node
+        // - `p` is it's parent
+        // - `g` is it's grandparent
 
-            // Find the parent. If there is none, `c` is the root.
-            let Some(p) = self.obj_pool[c].parent else {
-                break;
-            };
-
+        // Keep rotating until `c` has no parent, i.e. it became the root.
+        while let Some(p) = self.obj_pool[c].parent {
             // Find the grandparent.
             let Some(g) = self.obj_pool[p].parent else {
                 // There is no grandparent. Just one more rotation is left.

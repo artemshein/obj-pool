@@ -231,4 +231,76 @@ mod tests {
         assert!(b.remove(id).is_none());
         assert_eq!(b.get(own).map(|v| *v), Some(20));
     }
+
+    #[test]
+    fn clear_releases_and_reuses() {
+        let o = ParObjPool::<usize, 4>::new();
+        let keys: Vec<_> = (0..8).map(|v| o.insert(v)).collect();
+        assert!(o.capacity() >= 8);
+
+        o.clear();
+        assert_eq!(o.capacity(), 0);
+        for k in keys {
+            assert!(o.get(k).is_none());
+            assert!(o.remove(k).is_none());
+        }
+
+        let k = o.insert(42);
+        assert_eq!(o.get(k).map(|v| *v), Some(42));
+    }
+
+    #[test]
+    fn get_mut_mutates_and_remove_twice() {
+        let o = ParObjPool::<usize, 4>::new();
+        let k = o.insert(1);
+
+        *o.get_mut(k).unwrap() = 2;
+        assert_eq!(o.get(k).map(|v| *v), Some(2));
+
+        assert_eq!(o.remove(k), Some(2));
+        assert_eq!(o.remove(k), None);
+        assert!(o.get(k).is_none());
+        assert!(o.get_mut(k).is_none());
+    }
+
+    #[test]
+    fn try_get_respects_shard_write_lock() {
+        let o = ParObjPool::<usize, 2>::new();
+        let k = o.insert(7);
+
+        let guard = o.get_mut(k).unwrap();
+        // The shard holding `k` is write-locked, so non-blocking reads must fail
+        // instead of deadlocking.
+        assert!(o.try_get(k).is_none());
+        assert!(o.try_get_mut(k).is_none());
+        drop(guard);
+
+        assert_eq!(o.try_get(k).map(|v| *v), Some(7));
+        assert_eq!(o.try_get_mut(k).map(|v| *v), Some(7));
+    }
+
+    #[test]
+    fn concurrent_insert_get_remove() {
+        let pool = ParObjPool::<usize, 8>::new();
+        std::thread::scope(|s| {
+            for t in 0..4 {
+                let pool = &pool;
+                s.spawn(move || {
+                    let keys: Vec<_> = (0..100)
+                        .map(|i| {
+                            let value = t * 1000 + i;
+                            (pool.insert(value), value)
+                        })
+                        .collect();
+                    for (k, v) in &keys {
+                        assert_eq!(pool.get(*k).map(|g| *g), Some(*v));
+                        *pool.get_mut(*k).unwrap() += 1;
+                    }
+                    for (k, v) in keys {
+                        assert_eq!(pool.remove(k), Some(v + 1));
+                    }
+                });
+            }
+        });
+    }
 }

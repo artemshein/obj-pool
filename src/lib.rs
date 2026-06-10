@@ -1254,4 +1254,212 @@ mod tests {
         assert_eq!(b.remove(id), None);
         assert_eq!(b.get(b.index_to_obj_id(0)), Some(&20));
     }
+
+    #[test]
+    fn free_list_is_lifo() {
+        let mut obj_pool = ObjPool::new();
+        let a = obj_pool.insert(1);
+        let b = obj_pool.insert(2);
+        let c = obj_pool.insert(3);
+
+        obj_pool.remove(a);
+        obj_pool.remove(c);
+
+        // Vacant slots are reused most-recently-removed first.
+        assert_eq!(obj_pool.next_vacant(), c);
+        assert_eq!(obj_pool.insert(30), c);
+        assert_eq!(obj_pool.next_vacant(), a);
+        assert_eq!(obj_pool.insert(10), a);
+
+        // No vacant slots left: the next insert appends.
+        let next = obj_pool.next_vacant();
+        assert_eq!(obj_pool.obj_id_to_index(next), 3);
+        assert_eq!(obj_pool.insert(4), next);
+        assert_eq!(obj_pool.len(), 4);
+        assert_eq!(obj_pool.get(b), Some(&2));
+    }
+
+    #[test]
+    fn unknown_id_is_not_found() {
+        let mut obj_pool = ObjPool::new();
+        obj_pool.insert(1);
+
+        let unknown = obj_pool.index_to_obj_id(100);
+        assert_eq!(obj_pool.get(unknown), None);
+        assert_eq!(obj_pool.get_mut(unknown), None);
+        assert_eq!(obj_pool.remove(unknown), None);
+        assert_eq!(obj_pool.len(), 1);
+    }
+
+    #[test]
+    fn clear_then_insert_reuses_ids() {
+        let mut obj_pool = ObjPool::new();
+        let a = obj_pool.insert(1);
+        obj_pool.insert(2);
+        obj_pool.clear();
+
+        // Stale ids decode out of bounds after a clear.
+        assert_eq!(obj_pool.get(a), None);
+        assert_eq!(obj_pool.remove(a), None);
+
+        // The pool keeps its tag, so freshly inserted objects get the same ids again.
+        let b = obj_pool.insert(3);
+        assert_eq!(b, a);
+        assert_eq!(obj_pool.get(b), Some(&3));
+        assert_eq!(obj_pool.len(), 1);
+    }
+
+    #[test]
+    fn into_iter_skips_vacant() {
+        let mut obj_pool = ObjPool::new();
+        let a = obj_pool.insert(10);
+        let b = obj_pool.insert(20);
+        let c = obj_pool.insert(30);
+        obj_pool.remove(b);
+
+        let items: Vec<_> = obj_pool.into_iter().collect();
+        assert_eq!(items, [(a, 10), (c, 30)]);
+    }
+
+    #[test]
+    fn iterate_with_vacant_ends() {
+        let mut obj_pool = ObjPool::new();
+        let a = obj_pool.insert(10);
+        let b = obj_pool.insert(20);
+        let c = obj_pool.insert(30);
+        obj_pool.remove(a);
+        obj_pool.remove(c);
+
+        let items: Vec<_> = obj_pool.iter().map(|(k, &v)| (k, v)).collect();
+        assert_eq!(items, [(b, 20)]);
+    }
+
+    #[test]
+    fn iterate_empty_and_fully_vacant() {
+        let mut obj_pool: ObjPool<i32> = ObjPool::new();
+        assert_eq!(obj_pool.iter().next(), None);
+        assert_eq!(obj_pool.iter().size_hint(), (0, Some(0)));
+
+        let keys: Vec<_> = (0..4).map(|v| obj_pool.insert(v)).collect();
+        for k in keys {
+            obj_pool.remove(k);
+        }
+        assert!(obj_pool.is_empty());
+        assert_eq!(obj_pool.iter().size_hint(), (0, Some(0)));
+        assert_eq!(obj_pool.iter().next(), None);
+        assert_eq!(obj_pool.iter_mut().next(), None);
+        assert_eq!(obj_pool.into_iter().next(), None);
+    }
+
+    #[test]
+    fn iterator_len_and_fuse() {
+        let mut obj_pool = ObjPool::new();
+        obj_pool.insert(10);
+        let b = obj_pool.insert(20);
+        obj_pool.insert(30);
+        obj_pool.remove(b);
+
+        let mut it = obj_pool.iter();
+        assert_eq!(it.len(), 2);
+        assert_eq!(it.size_hint(), (2, Some(2)));
+        it.next();
+        assert_eq!(it.len(), 1);
+        it.next();
+        assert_eq!(it.len(), 0);
+        assert_eq!(it.next(), None);
+        // Fused: keeps returning `None` after the end.
+        assert_eq!(it.next(), None);
+
+        let mut it = obj_pool.iter_mut();
+        assert_eq!(it.len(), 2);
+        it.next();
+        assert_eq!(it.size_hint(), (1, Some(1)));
+
+        let mut it = obj_pool.into_iter();
+        assert_eq!(it.len(), 2);
+        it.next();
+        assert_eq!(it.len(), 1);
+    }
+
+    #[test]
+    fn clone_preserves_ids_and_free_list() {
+        let mut original = ObjPool::new();
+        let a = original.insert(1);
+        let b = original.insert(2);
+        let c = original.insert(3);
+        original.remove(b);
+
+        let mut clone = original.clone();
+        // Ids issued by the original resolve to the same objects in the clone.
+        assert_eq!(clone.get(a), Some(&1));
+        assert_eq!(clone.get(b), None);
+        assert_eq!(clone.get(c), Some(&3));
+        assert_eq!(clone.len(), original.len());
+
+        // The free list is cloned too: both pools reuse the same vacant slot,
+        // then append, issuing equal ids.
+        assert_eq!(clone.insert(20), original.insert(20));
+        assert_eq!(clone.insert(4), original.insert(4));
+    }
+
+    #[test]
+    fn swap_with_itself() {
+        let mut obj_pool = ObjPool::new();
+        let a = obj_pool.insert(7);
+        obj_pool.swap(a, a);
+        assert_eq!(obj_pool.get(a), Some(&7));
+    }
+
+    #[test]
+    #[should_panic]
+    fn swap_removed_id_panics() {
+        let mut obj_pool = ObjPool::new();
+        let a = obj_pool.insert(1);
+        let b = obj_pool.insert(2);
+        obj_pool.remove(b);
+        obj_pool.swap(a, b);
+    }
+
+    #[test]
+    fn reserve_accounts_for_vacant_slots() {
+        let mut obj_pool = ObjPool::with_capacity(2);
+        let a = obj_pool.insert(1);
+        obj_pool.insert(2);
+        obj_pool.remove(a);
+
+        // One slot is vacant, so reserving room for one object needs no new memory.
+        obj_pool.reserve(1);
+        assert_eq!(obj_pool.capacity(), 2);
+        obj_pool.reserve_exact(1);
+        assert_eq!(obj_pool.capacity(), 2);
+    }
+
+    #[test]
+    fn obj_id_display_from_str_round_trip() {
+        let mut obj_pool = ObjPool::new();
+        let a = obj_pool.insert(7);
+
+        let parsed: ObjId = a.to_string().parse().unwrap();
+        assert_eq!(parsed, a);
+        assert_eq!(obj_pool.get(parsed), Some(&7));
+
+        assert!("0".parse::<ObjId>().is_err());
+        assert!("".parse::<ObjId>().is_err());
+        assert!("abc".parse::<ObjId>().is_err());
+        assert!("4294967296".parse::<ObjId>().is_err()); // u32::MAX + 1
+    }
+
+    #[test]
+    fn obj_id_raw_round_trip() {
+        for index in [0, 1, 42, u32::MAX - 1] {
+            assert_eq!(ObjId::from_index(index).into_index(), index);
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "index out of range")]
+    fn from_index_max_panics_in_debug() {
+        let _ = ObjId::from_index(u32::MAX);
+    }
 }
