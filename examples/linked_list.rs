@@ -1,6 +1,4 @@
-extern crate obj_pool;
-
-use obj_pool::{ObjPool, ObjId};
+use obj_pool::{ObjId, ObjPool};
 
 struct Node<T> {
     /// Previous node in the list.
@@ -27,9 +25,8 @@ struct List<T> {
 impl<T> List<T> {
     /// Constructs a new, empty doubly linked list.
     fn new() -> Self {
-        let obj_pool = ObjPool::new();
         List {
-            obj_pool,
+            obj_pool: ObjPool::new(),
             head: None,
             tail: None,
         }
@@ -42,8 +39,12 @@ impl<T> List<T> {
 
     /// Links nodes `a` and `b` together, so that `a` comes before `b` in the list.
     fn link(&mut self, a: Option<ObjId>, b: Option<ObjId>) {
-        if a.is_some() { self.obj_pool[a].next = b; }
-        if b.is_some() { self.obj_pool[b].prev = a; }
+        if let Some(a) = a {
+            self.obj_pool[a].next = b;
+        }
+        if let Some(b) = b {
+            self.obj_pool[b].prev = a;
+        }
     }
 
     /// Appends `value` to the back of the list.
@@ -55,18 +56,19 @@ impl<T> List<T> {
         });
 
         let tail = self.tail;
-        self.link(tail, node);
+        self.link(tail, Some(node));
 
-        self.tail = node;
+        self.tail = Some(node);
         if self.head.is_none() {
-            self.head = node;
+            self.head = Some(node);
         }
         self.obj_pool.obj_id_to_index(node) as usize
     }
 
     /// Pops and returns the value at the front of the list.
     fn pop_front(&mut self) -> T {
-        let node = self.obj_pool.remove(self.head).unwrap();
+        let head = self.head.expect("the list is empty");
+        let node = self.obj_pool.remove(head).unwrap();
 
         self.link(None, node.next);
         self.head = node.next;
@@ -82,8 +84,12 @@ impl<T> List<T> {
         let node = self.obj_pool.remove(obj_id).unwrap();
 
         self.link(node.prev, node.next);
-        if self.head == obj_id { self.head = node.next; }
-        if self.tail == obj_id { self.tail = node.prev; }
+        if self.head == Some(obj_id) {
+            self.head = node.next;
+        }
+        if self.tail == Some(obj_id) {
+            self.tail = node.prev;
+        }
 
         node.value
     }

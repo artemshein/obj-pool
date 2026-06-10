@@ -19,19 +19,18 @@ When building self-referential data structures (graphs, trees, linked lists) in 
 ## Highlights
 
 - **Compact IDs** — `ObjId` wraps `NonZeroU32`, so `Option<ObjId>` is 4 bytes with no extra space (niche optimization). A `slab` key is a full `usize` (8 bytes on 64-bit).
-- **Debug-mode safety** — pools embed an offset into each `ObjId` in debug builds so accidental cross-pool access panics instead of silently returning wrong data.
+- **Debug-mode safety** — in debug builds every pool mixes a random pool-specific offset into each `ObjId` it issues, so accidental cross-pool access is rejected (`get` returns `None`, indexing panics) instead of silently returning wrong data. Release builds skip the masking entirely.
 - **Parallel pool** — `ParObjPool<T, S>` shards `S` inner pools behind `RwLock`s for concurrent insert/remove/lookup without a global lock.
-- **Optional serde** — enable the `serde_support` feature to serialize/deserialize `ObjId` and pool contents.
-- **`OptionObjId`** — a niche-optimized optional ID type backed by the `optional` crate.
+- **Optional serde** — enable the `serde_support` feature to serialize/deserialize `ObjId`.
 
 ## Usage
 
 ```toml
 [dependencies]
-obj-pool = "0.6"
+obj-pool = "0.7"
 
 # with serde:
-obj-pool = { version = "0.6", features = ["serde_support"] }
+obj-pool = { version = "0.7", features = ["serde_support"] }
 ```
 
 ### Single-threaded pool
@@ -54,7 +53,7 @@ let c: ObjId = pool.insert("reused".to_string());
 
 ### Parallel pool
 
-`ParObjPool<T, S>` distributes objects across `S` shards. `ObjId`s are self-contained — the shard index is encoded in the upper bits, so callers need no knowledge of the sharding.
+`ParObjPool<T, S>` distributes objects across `S` shards. `ObjId`s are self-contained — the shard index is encoded in the upper bits, so callers need no knowledge of the sharding. The number of bits reserved for the shard index is the smallest able to represent `S` shards, so each shard can hold up to `2^(32 - ceil(log2(S))) - 1` objects (e.g. ~268M per shard for `S = 16`).
 
 ```rust
 use obj_pool::ParObjPool;

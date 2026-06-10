@@ -1,6 +1,4 @@
-extern crate obj_pool;
-
-use obj_pool::{ObjPool, ObjId};
+use obj_pool::{ObjId, ObjPool};
 
 struct Node<T> {
     /// Parent node.
@@ -31,12 +29,14 @@ struct Splay<T> {
     root: Option<ObjId>,
 }
 
-impl<T> Splay<T> where T: Ord {
+impl<T> Splay<T>
+where
+    T: Ord,
+{
     /// Constructs a new, empty splay tree.
     fn new() -> Splay<T> {
-        let obj_pool = ObjPool::new();
         Splay {
-            obj_pool,
+            obj_pool: ObjPool::new(),
             root: None,
         }
     }
@@ -46,7 +46,7 @@ impl<T> Splay<T> where T: Ord {
     fn link(&mut self, p: ObjId, c: Option<ObjId>, dir: usize) {
         self.obj_pool[p].children[dir] = c;
         if let Some(c) = c {
-            self.obj_pool[c].parent = p;
+            self.obj_pool[c].parent = Some(p);
         }
     }
 
@@ -62,21 +62,29 @@ impl<T> Splay<T> where T: Ord {
         let g = self.obj_pool[p].parent;
 
         // The direction of p-c relationship.
-        let dir = if self.obj_pool[p].children[0] == c { 0 } else { 1 };
+        let dir = if self.obj_pool[p].children[0] == Some(c) {
+            0
+        } else {
+            1
+        };
 
         // This is the child of `c` that needs to be reassigned to `p`.
         let t = self.obj_pool[c].children[dir ^ 1];
 
         self.link(p, t, dir);
-        self.link(c, p, dir ^ 1);
+        self.link(c, Some(p), dir ^ 1);
 
         if let Some(g) = g {
             // Link `g` and `c` together.
-            let dir = if self.obj_pool[g].children[0] == p { 0 } else { 1 };
-            self.link(g, c, dir);
+            let dir = if self.obj_pool[g].children[0] == Some(p) {
+                0
+            } else {
+                1
+            };
+            self.link(g, Some(c), dir);
         } else {
             // There is no grandparent, so `c` becomes the root.
-            self.root = c;
+            self.root = Some(c);
             self.obj_pool[c].parent = None;
         }
     }
@@ -89,23 +97,21 @@ impl<T> Splay<T> where T: Ord {
             // - `p` is it's parent
             // - `g` is it's grandparent
 
-            // Find the parent.
-            let p = self.obj_pool[c].parent;
-            if p.is_none() {
-                // There is no parent. That means `c` is the root.
+            // Find the parent. If there is none, `c` is the root.
+            let Some(p) = self.obj_pool[c].parent else {
                 break;
-            }
+            };
 
             // Find the grandparent.
-            let g = self.obj_pool[p].parent;
-            if g.is_none() {
+            let Some(g) = self.obj_pool[p].parent else {
                 // There is no grandparent. Just one more rotation is left.
                 // Zig step.
                 self.rotate(p, c);
                 break;
-            }
+            };
 
-            if (self.obj_pool[g].children[0] == p) == (self.obj_pool[p].children[0] == c) {
+            if (self.obj_pool[g].children[0] == Some(p)) == (self.obj_pool[p].children[0] == Some(c))
+            {
                 // Zig-zig step.
                 self.rotate(g, p);
                 self.rotate(p, c);
@@ -130,24 +136,32 @@ impl<T> Splay<T> where T: Ord {
             let mut p = root;
             loop {
                 // Decide whether to go left or right.
-                let dir = if self.obj_pool[n].value < self.obj_pool[p].value { 0 } else { 1 };
-                let c = self.obj_pool[p].children[dir];
+                let dir = if self.obj_pool[n].value < self.obj_pool[p].value {
+                    0
+                } else {
+                    1
+                };
 
-                if c.is_none() {
-                    self.link(p, n, dir);
-                    self.splay(n);
-                    break;
+                match self.obj_pool[p].children[dir] {
+                    Some(c) => p = c,
+                    None => {
+                        self.link(p, Some(n), dir);
+                        self.splay(n);
+                        break;
+                    }
                 }
-                p = c;
             }
         } else {
-            self.root = n;
+            self.root = Some(n);
         }
     }
 
     /// Pretty-prints the subtree rooted at `node`, indented by `indent` spaces.
-    fn print(&self, node: ObjId, indent: usize) where T: std::fmt::Display {
-        if node != self.null {
+    fn print(&self, node: Option<ObjId>, indent: usize)
+    where
+        T: std::fmt::Display,
+    {
+        if let Some(node) = node {
             // Print the left subtree.
             self.print(self.obj_pool[node].children[0], indent + 3);
 
