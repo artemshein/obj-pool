@@ -506,8 +506,8 @@ impl<T> ObjPool<T> {
         }
     }
 
-    /// Clears the object pool, removing and dropping all objects it holds. Keeps the allocated memory
-    /// for reuse.
+    /// Clears the object pool, removing and dropping all objects it holds, and releases the
+    /// allocated memory.
     ///
     /// # Examples
     ///
@@ -522,10 +522,12 @@ impl<T> ObjPool<T> {
     /// assert_eq!(obj_pool.len(), 10);
     /// obj_pool.clear();
     /// assert_eq!(obj_pool.len(), 0);
+    /// assert_eq!(obj_pool.capacity(), 0);
     /// ```
     #[inline]
     pub fn clear(&mut self) {
         self.slots.clear();
+        self.slots.shrink_to_fit();
         self.len = 0;
         self.head = u32::MAX;
     }
@@ -1076,12 +1078,11 @@ mod tests {
         assert!(!obj_pool.is_empty());
         assert_eq!(obj_pool.len(), 2);
 
-        let cap = obj_pool.capacity();
         obj_pool.clear();
 
         assert!(obj_pool.is_empty());
         assert_eq!(obj_pool.len(), 0);
-        assert_eq!(obj_pool.capacity(), cap);
+        assert_eq!(obj_pool.capacity(), 0);
     }
 
     #[test]

@@ -117,9 +117,7 @@ impl<T, const S: usize> ParObjPool<T, S> {
 
     pub fn clear(&self) {
         for shard in &self.shards {
-            let mut shard = shard.write();
-            shard.clear();
-            shard.shrink_to_fit();
+            shard.write().clear();
         }
     }
 
